@@ -1,23 +1,19 @@
 #!/usr/local/bin/python
 
+## to be stored in a constant definition file
+devRoot = "/Users/toine/Documents/dev"
+
 ## imports std
 import itertools
 import os
 import sys
 import imp
 
-## import local
-
-## import 3rd party
+## imports local
 import h5py
 import numpy as np
-
-## to be stored in a constant definition file
-devRoot = "/Users/toine/Documents/dev"
-
 import wave
 sys.path.append(devRoot+"/bob.spear-1.1.2")
-import spear
 
 
 class VadSeg(object):
@@ -32,6 +28,10 @@ class VadSeg(object):
     id_1
     startChunk:stopChunk
     ...
+
+    TODO:
+    - optimize the constants, might depend on distribution of silence between utterances
+    - try out different Voice Activity Detection algorithm, especially in case of a noisy env.
     """
     def __init__(self, dirname, filename, vad="default"):
         """
@@ -53,6 +53,11 @@ class VadSeg(object):
         self.vadCfg = imp.load_source("cfg_vad", devRoot+"/bob.spear-1.1.2/config/preprocessing/energy.py")
         self.vad = self.vadCfg.preprocessor(self.vadCfg)
 
+        ## segmentation constants
+        ## the VAD output 1 sample per 10ms, hence the constants represents 100ms and 400ms
+        self.SMALLEST_GAP_MS = 10
+        self.SMALLEST_CHUNK_MS = 50
+
     def __del__(self):
         """Close the file objects opened at creation."""
         self.wavFile.close()
@@ -60,11 +65,14 @@ class VadSeg(object):
     def perform_vad(self):
         """Perform the voice activity detection on file.wav and store the result in file.hdf5."""
         fileIn = os.path.join(self.dirname, self.filename+".wav")
-        fileOut = self.hdf5FileName #os.path.join(self.dirname, self.filename+".hdf5")
+        fileOut = self.hdf5FileName  ## os.path.join(self.dirname, self.filename+".hdf5")
         self.vad(fileIn, fileOut)
 
     def perform_segmentation(self):
-        """Perform the segmentation of file.wav based on file.hdf5."""
+        """
+        Perform the segmentation of file.wav based on file.hdf5.
+        TODO: split this in private helper functions
+        """
 
         hdf5File = h5py.File(self.hdf5FileName, 'r+')
         ar = hdf5File.values()
@@ -82,7 +90,7 @@ class VadSeg(object):
 
         segments = []
         start = nparNonZero[0]
-        for (left, right) in itertools.izip(*[a,b]):
+        for (left, right) in itertools.izip(*[a, b]):
             if left != right-1:
                 end = left
                 lenght = end - start
@@ -98,7 +106,7 @@ class VadSeg(object):
         mergeFlag = False
         for (left, right) in itertools.izip(*[a,b]):
             # if close, merge
-            if left[3] < 10:
+            if left[3] < self.SMALLEST_GAP_MS:
                 if mergeFlag:
                     # pop last and replace
                     last = filtSeg.pop() 
@@ -110,22 +118,25 @@ class VadSeg(object):
 
             elif mergeFlag:
                 # check if last merge produced a big chunk, otherwise pop it
-                if filtSeg[-1][2] < 25:
+                if filtSeg[-1][2] < self.SMALLEST_CHUNK_MS:
                     filtSeg.pop()
                     
                 mergeFlag = False
 
             else:
-                if left[2] > 25:
+                if left[2] > self.SMALLEST_CHUNK_MS:
                     filtSeg.append(left)
                 else:
                     pass
 
         ## save the chunks in file.as
         self.asFile.write(self.filename+'\n')
-        for (id, chunk) in enumerate(filtSeg):
-            self.asFile.write(str(id)+'\n')
+        for (num, chunk) in enumerate(filtSeg):
+            self.asFile.write(str(num)+'\n')
             self.asFile.write(str(chunk[0])+'0-'+str(chunk[1])+'0\n')
+        ## hdf5 file contains 1 sample per 160 wav sample, that is 1 sample represents 10ms at a
+        ## sampling rate of 16kHz, so adding a zero makes it into ms.
+        ## ex: 154 in hd5f represent 1540ms in wav
 
         ## recreate the hdf5 file
         a, b = itertools.tee(filtSeg)
@@ -133,7 +144,7 @@ class VadSeg(object):
 
         A = np.zeros(filtSeg[0][0], dtype=int)
 
-        for (left, right) in itertools.izip(*[a,b]):
+        for (left, right) in itertools.izip(*[a, b]):
             A = np.append(A, np.ones(left[2]))
             A = np.append(A, np.zeros(right[0] - left[1]))
 
@@ -141,6 +152,7 @@ class VadSeg(object):
         hdf5File["/filtered_vad"][...] = np.array(A)
 
 
+## implement testing or printing
 def print_for_test():
     f = h5py.File("lex-chocolate-1min.hdf5")
     ar = f.values()
@@ -161,6 +173,7 @@ def print_for_test():
     f2 = plt.figure(2)
     plt.plot(xA*160/16000, A*max(data), x2/16000, data);
     f2.show()
+
 
 class ChunkerFromAsFile(object):
     """
@@ -211,11 +224,10 @@ class ChunkerFromAsFile(object):
         asFile = self.asFile
         asFile.readline() # dump the filename as the first line
 
-        ## get 3 same iterators on f
+        ## get 2 same iterators on f
         for (id , time) in itertools.izip(*([iter(asFile)]*2)):
-            print id, time
             # write .fileids and .transcription files
-            outFilename = self.filename + "_" + id.strip()
+            outFilename = self.filename + "_" + '{:04d}'.format(int(id.strip()))
 
             [msSt, msEd] = time.strip().split("-")
             frameSt = int(float(msSt) * framerate/1000)
@@ -235,7 +247,7 @@ class ChunkerFromMtFile(object):
     Chunk wav from file.wav based on file.mt.
     This will also create fileids and transcription files for CMU-Sphinx decoding.
     
-    mt means "manual transction". The mt format is:
+    mt means "manual transcription". The mt format is:
     "filename"
     1
     "min:sec.ms-min:sec.ms"
@@ -280,7 +292,8 @@ class ChunkerFromMtFile(object):
         (nchannels, sampwidth, framerate, nframes, comptype, compname) = wavFile.getparams()
 
         mtFile = self.mtFile
-        filenameTmp = mtFile.readline()
+        _ = mtFile.readline()
+
         #TODO: should I change the mt file format?
         # check filename == self.filename
 
@@ -296,8 +309,8 @@ class ChunkerFromMtFile(object):
             transcriptionFile.write(text+"\n")
 
             [st, ed] = time.strip().split("-")
-            msSt = (float)(st.split(":")[0])*60000 + (float)(st.split(":")[1])*1000
-            msEd = (float)(ed.split(":")[0])*60000 + (float)(ed.split(":")[1])*1000
+            msSt = float(st.split(":")[0])*60000 + float(st.split(":")[1])*1000
+            msEd = float(ed.split(":")[0])*60000 + float(ed.split(":")[1])*1000
             frameSt = int(msSt * framerate/1000)
             frameEd = int(msEd * framerate/1000)
             wavFile.setpos(frameSt)

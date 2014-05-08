@@ -16,7 +16,7 @@ def setup_logging(level=logging.DEBUG):
 
 def main(switch, dir, name):
     if switch:
-        c = utils.Class2(dir, name)
+        c = utils.ChunkerFromAsFile(dir, name)
         c.create_chunks()
     else:
         v = utils.VadSeg(dir, name)
