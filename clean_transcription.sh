@@ -19,6 +19,8 @@ function wrong
 function prerequisite
 {
     [ ! -f $dir/$name.transcription ] && echo ".transcription file missing" && exit
+    
+    cp $dir/$name.transcription $dir/$name.transcription.org
     #[ ! -f $dir/$name.fileids ] && echo ".fileids file missing" && exit
 }
 

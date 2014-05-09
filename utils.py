@@ -54,9 +54,9 @@ class VadSeg(object):
         self.vad = self.vadCfg.preprocessor(self.vadCfg)
 
         ## segmentation constants
-        ## the VAD output 1 sample per 10ms, hence the constants represents 100ms and 400ms
-        self.SMALLEST_GAP_MS = 10
-        self.SMALLEST_CHUNK_MS = 50
+        ## the VAD output 1 sample per 10ms, hence the constants represents 100ms and 500ms
+        self.SMALLEST_GAP_MS = 10 # 100 / 10
+        self.SMALLEST_CHUNK_MS = 50 # 500 / 10
 
     def __del__(self):
         """Close the file objects opened at creation."""
