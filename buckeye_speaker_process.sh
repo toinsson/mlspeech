@@ -22,9 +22,9 @@ function exe
     for d in `ls $dir`
     do 
         echo $d
-        echo "python $MLSPEECH/main.py -s --dir $dir/$d --name $d"
-        echo "python $MLSPEECH/main.py -c --dir $dir/$d --name $d"
-        echo "cp $dir/$d/$d.txt $dir/$d/$d.transcription"
+        python $MLSPEECH/main.py -s --dir $dir/$d --name $d
+        python $MLSPEECH/main.py -c --dir $dir/$d --name $d
+        cp $dir/$d/$d.txt $dir/$d/$d.transcription
     done
 }
 

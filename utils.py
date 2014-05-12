@@ -10,6 +10,7 @@ import sys
 import imp
 
 ## imports local
+import matplotlib as plt
 import h5py
 import numpy as np
 import wave
@@ -71,7 +72,10 @@ class VadSeg(object):
     def perform_segmentation(self):
         """
         Perform the segmentation of file.wav based on file.hdf5.
-        TODO: split this in private helper functions
+        TODO: 
+        - split this in private helper functions
+        - use namedtuple for segments, not access of segment[X]
+        - include a little bit of surroundings when saving file
         """
 
         hdf5File = h5py.File(self.hdf5FileName, 'r+')
@@ -84,11 +88,12 @@ class VadSeg(object):
         ## create a fictive island at the end
         nparNonZero = np.append(nparNonZero, nparNonZero[-1]+2)
 
-        ## find the segments
+        ## find the segments boundaries
         a, b = itertools.tee(nparNonZero)
         next(b, None)
 
         segments = []
+
         start = nparNonZero[0]
         for (left, right) in itertools.izip(*[a, b]):
             if left != right-1:
@@ -190,6 +195,10 @@ class ChunkerFromAsFile(object):
 
     where startChunk and stopChunk are start and stop time of the chunk to 
     create in milliseconds.
+
+    TODO:
+    - include a window that take a bit of audio outside the chunk to smooth 
+    the VAD segmenting. Useful when splitting in the middle of a sentence, word. 
     """
     def __init__(self, dirname, filename):
         """
