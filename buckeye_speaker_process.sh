@@ -3,8 +3,9 @@
 function usage
 {
     echo "usage: buckeye_speaker_process -d dir" >&2
-    echo "       batch decode the wav files under dir" >&2
-    echo "       and save the hypotheses under dir/name.hyp" >&2
+    echo "       prepare a data directory for processing" >&2
+    echo "       - perform the VAD and segmentation" >&2
+    echo "       - pre-split the transcription file" >&2
     exit 1
 }
 
@@ -25,6 +26,8 @@ function exe
         python $MLSPEECH/main.py -s --dir $dir/$d --name $d
         python $MLSPEECH/main.py -c --dir $dir/$d --name $d
         cp $dir/$d/$d.txt $dir/$d/$d.transcription
+        cat $dir/$d/$d.transcription | sed "s/<SIL>/#/g;s/<VOCNOISE>/#/g" | tr '#' '\n' > $dir/$d/$d.transcription.split
+        sed -i.bak "s/^ //" $dir/$d/$d.transcription.split
     done
 }
 

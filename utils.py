@@ -16,6 +16,8 @@ import numpy as np
 import wave
 sys.path.append(devRoot+"/bob.spear-1.1.2")
 
+from collections import namedtuple
+
 
 class VadSeg(object):
     """
@@ -56,8 +58,8 @@ class VadSeg(object):
 
         ## segmentation constants
         ## the VAD output 1 sample per 10ms, hence the constants represents 100ms and 500ms
-        self.SMALLEST_GAP_MS = 10 # 100 / 10
-        self.SMALLEST_CHUNK_MS = 50 # 500 / 10
+        self.SMALLEST_GAP_MS = 15 # 100 / 10
+        self.SMALLEST_CHUNK_MS = 55 # 500 / 10
 
     def __del__(self):
         """Close the file objects opened at creation."""
@@ -77,6 +79,8 @@ class VadSeg(object):
         - use namedtuple for segments, not access of segment[X]
         - include a little bit of surroundings when saving file
         """
+
+        Segment = namedtuple('Segment', ['start', 'end', 'length', 'separation'])
 
         hdf5File = h5py.File(self.hdf5FileName, 'r+')
         ar = hdf5File.values()
@@ -100,7 +104,7 @@ class VadSeg(object):
                 end = left
                 lenght = end - start
                 separation = right - end
-                segments.append(tuple([start, end, lenght, separation]))
+                segments.append(Segment(start, end, lenght, separation))
                 start = right
 
         ## merge the "adjacent" segments and drop the small ones
@@ -111,25 +115,25 @@ class VadSeg(object):
         mergeFlag = False
         for (left, right) in itertools.izip(*[a,b]):
             # if close, merge
-            if left[3] < self.SMALLEST_GAP_MS:
+            if left.separation < self.SMALLEST_GAP_MS:
                 if mergeFlag:
                     # pop last and replace
                     last = filtSeg.pop() 
-                    filtSeg.append(tuple([last[0], right[1],right[1]-last[0],0]))
+                    filtSeg.append(Segment(last.start, right.end, right.end-last.start, 0))
                 else:
                     # take left
                     mergeFlag = True
-                    filtSeg.append(tuple([left[0], right[1],right[1]-left[0],0]))
+                    filtSeg.append(Segment(left.start, right.end,right.end - left.start, 0))
 
             elif mergeFlag:
                 # check if last merge produced a big chunk, otherwise pop it
-                if filtSeg[-1][2] < self.SMALLEST_CHUNK_MS:
+                if filtSeg[-1].length < self.SMALLEST_CHUNK_MS:
                     filtSeg.pop()
                     
                 mergeFlag = False
 
             else:
-                if left[2] > self.SMALLEST_CHUNK_MS:
+                if left.length > self.SMALLEST_CHUNK_MS:
                     filtSeg.append(left)
                 else:
                     pass
@@ -214,6 +218,8 @@ class ChunkerFromAsFile(object):
 
         self.wavDir = dirname+"/wav"
 
+        self.window = 50  # take 20ms around the sound sample tpo smooth the VAD selection
+
     def __del__(self):
         """Close the file objects opened at creation."""
         self.wavFile.close()
@@ -239,8 +245,14 @@ class ChunkerFromAsFile(object):
             outFilename = self.filename + "_" + '{:04d}'.format(int(id.strip()))
 
             [msSt, msEd] = time.strip().split("-")
-            frameSt = int(float(msSt) * framerate/1000)
-            frameEd = int(float(msEd) * framerate/1000)
+            frameSt = int((float(msSt) - self.window) * framerate / 1000)
+            frameEd = int((float(msEd) + self.window) * framerate / 1000)
+
+            if frameSt < 0:
+                frameSt = 0
+            if frameEd > nframes:
+                frameEd = nframes
+
             wavFile.setpos(frameSt)
             chunk = wavFile.readframes(frameEd - frameSt)
             

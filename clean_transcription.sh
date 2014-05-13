@@ -19,7 +19,7 @@ function wrong
 function prerequisite
 {
     [ ! -f $dir/$name.transcription ] && echo ".transcription file missing" && exit
-
+    [ ! -f $dir/wav/playlist.pls ] && echo "playslist.pls file missing" && exit
     cp $dir/$name.transcription $dir/$name.transcription.org
     #[ ! -f $dir/$name.fileids ] && echo ".fileids file missing" && exit
 }
