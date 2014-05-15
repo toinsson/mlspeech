@@ -8,6 +8,8 @@ import itertools
 import os
 import sys
 import imp
+import logging
+import time
 
 ## imports local
 import matplotlib as plt
@@ -18,6 +20,11 @@ sys.path.append(devRoot+"/bob.spear-1.1.2")
 
 from collections import namedtuple
 
+
+def secondsToStr(t):
+    return "%d:%02d:%02d.%03d" % \
+        reduce(lambda ll,b : divmod(ll[0],b) + ll[1:],
+            [(t*1000,),1000,60,60])
 
 class VadSeg(object):
     """
@@ -61,15 +68,23 @@ class VadSeg(object):
         self.SMALLEST_GAP_MS = 15 # 100 / 10
         self.SMALLEST_CHUNK_MS = 55 # 500 / 10
 
+        ## logger 
+        self.logger = logging.getLogger(__name__)
+
     def __del__(self):
         """Close the file objects opened at creation."""
         self.wavFile.close()
 
     def perform_vad(self):
         """Perform the voice activity detection on file.wav and store the result in file.hdf5."""
+        startTime = time.time()
+        self.logger.debug('%s', 'start VAD')
+
         fileIn = os.path.join(self.dirname, self.filename+".wav")
         fileOut = self.hdf5FileName  ## os.path.join(self.dirname, self.filename+".hdf5")
         self.vad(fileIn, fileOut)
+
+        self.logger.debug('%s %f', 'finish VAD: ', time.time() - startTime)
 
     def perform_segmentation(self):
         """
@@ -92,7 +107,9 @@ class VadSeg(object):
         ## create a fictive island at the end
         nparNonZero = np.append(nparNonZero, nparNonZero[-1]+2)
 
+        ##
         ## find the segments boundaries
+        ##
         a, b = itertools.tee(nparNonZero)
         next(b, None)
 
@@ -107,7 +124,9 @@ class VadSeg(object):
                 segments.append(Segment(start, end, lenght, separation))
                 start = right
 
+        ##
         ## merge the "adjacent" segments and drop the small ones
+        ##
         a, b = itertools.tee(segments)
         next(b, None)
 
@@ -119,17 +138,17 @@ class VadSeg(object):
                 if mergeFlag:
                     # pop last and replace
                     last = filtSeg.pop() 
-                    filtSeg.append(Segment(last.start, right.end, right.end-last.start, 0))
+                    filtSeg.append(Segment(last.start, right.end, right.end - last.start, 0))
                 else:
                     # take left
                     mergeFlag = True
-                    filtSeg.append(Segment(left.start, right.end,right.end - left.start, 0))
+                    filtSeg.append(Segment(left.start, right.end, right.end - left.start, 0))
 
             elif mergeFlag:
                 # check if last merge produced a big chunk, otherwise pop it
                 if filtSeg[-1].length < self.SMALLEST_CHUNK_MS:
                     filtSeg.pop()
-                    
+
                 mergeFlag = False
 
             else:
