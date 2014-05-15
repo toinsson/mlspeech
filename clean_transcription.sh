@@ -38,12 +38,12 @@ function exe
 
     # sed
     # - remove sil?
+    # - remove     s/<LAUGH>//g ?
     sed '
     s/^/<s> /
     s/$/<\/s>/
     s/<SIL>/<sil>/g 
     s/<VOCNOISE>//g
-    s/<LAUGH>//g
     s/<IVER>//g
     s/  / /g
     ' < $dir/$name.transcription > $dir/$name.tmp
