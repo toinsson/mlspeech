@@ -16,13 +16,23 @@ function wrong
 
 function exe
 {
+    # if lm, dict or hmm are not set, plug in the default values""
+    [ ! -n "$lm" ] && lm="/Users/toine/Documents/grasch/ensemble_cased/ensemble_wiki_ng_se_so_subs_enron_congress_65k_pruned_huge_sorted_cased.lm.DMP"
+    [ ! -n "$dict" ] && dict="/Users/toine/Documents/grasch/ensemble_cased/essential-sane-65k.fullCased.dic"
+    [ ! -n "$hmm" ] && hmm="/Users/toine/Documents/grasch/voxforge_en_sphinx.cd_cont_5000"
+    [ ! -n "$cepdir" ] && cepdir=$dir"/wav"
+
+# echo "lm "$lm
+# echo "dict "$dict
+# echo "hmm "$hmm
+
     pocketsphinx_batch \
         -adcin yes \
-        -cepdir $dir/wav \
+        -cepdir $cepdir \
         -cepext .wav \
-        -lm /Users/toine/Documents/grasch/ensemble_cased/ensemble_wiki_ng_se_so_subs_enron_congress_65k_pruned_huge_sorted_cased.lm.DMP \
-        -dict /Users/toine/Documents/grasch/ensemble_cased/essential-sane-65k.fullCased.dic \
-        -hmm /Users/toine/Documents/grasch/voxforge_en_sphinx.cd_cont_5000 \
+        -lm $lm \
+        -dict $dict \
+        -hmm $hmm \
         -ctl $dir/$name.fileids \
         -hyp $dir/$name.hyp
 }
@@ -39,6 +49,12 @@ do
         # file argument
         -d) dir=$2; shift;;
         -n) name=$2; shift;;
+
+        # pocketsphinx arguments
+        -lm) lm=$2; shift;;
+        -dict) dict=$2; shift;;
+        -hmm) hmm=$2; shift;;
+        -cepdir) cepdir=$2; shift;;
 
         # wrong syntax
         *) wrong;; 

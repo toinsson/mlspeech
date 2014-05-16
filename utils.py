@@ -65,8 +65,9 @@ class VadSeg(object):
 
         ## segmentation constants
         ## the VAD output 1 sample per 10ms, hence the constants represents 100ms and 500ms
-        self.SMALLEST_GAP_MS = 15 # 100 / 10
-        self.SMALLEST_CHUNK_MS = 55 # 500 / 10
+        ## TODO: tune these constants based on the distribution of speech/silence in the input file
+        self.SMALLEST_GAP_MS = 20 # 100 / 10
+        self.SMALLEST_CHUNK_MS = 45 # 500 / 10
 
         ## logger 
         self.logger = logging.getLogger(__name__)

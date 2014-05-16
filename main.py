@@ -59,9 +59,9 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=desc)
 
     group = parser.add_mutually_exclusive_group(required=True)
-    group.add_argument('-s', action='store_const', const = 0, help='switch action, creates segmentation for dir/file.wav')
-    group.add_argument('-c', action='store_const', const = 1, help='switch action, creates chunks for dir/file.wav')
-    group.add_argument('-o', action='store_const', const = 2, help='switch action, decode file.wav')
+    group.add_argument('-s', action='store_const', const = 1, help='switch action, creates segmentation for dir/file.wav')
+    group.add_argument('-c', action='store_const', const = 2, help='switch action, creates chunks for dir/file.wav')
+    group.add_argument('-o', action='store_const', const = 3, help='switch action, decode file.wav')
 
     parser.add_argument('--dir', '-d', metavar='path', help='path to the data', required=True)
     parser.add_argument('--name', '-n', metavar='file', help='common name for file.wav and file.mt', required=True)
@@ -69,9 +69,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     options = args.s or args.c or args.o
-    funcs = {0 : segmentFile,
-            1 : chunkFile,
-            2 : decodeFile}
+    funcs = {1 : segmentFile,
+             2 : chunkFile,
+             3 : decodeFile}
 
     setup_logging()
     logger = logging.getLogger(__name__)
