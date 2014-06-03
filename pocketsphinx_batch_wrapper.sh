@@ -21,6 +21,7 @@ function exe
     [ ! -n "$dict" ] && dict="/Users/toine/Documents/grasch/ensemble_cased/essential-sane-65k.fullCased.dic"
     [ ! -n "$hmm" ] && hmm="/Users/toine/Documents/grasch/voxforge_en_sphinx.cd_cont_5000"
     [ ! -n "$cepdir" ] && cepdir=$dir"/wav"
+    [ ! -n "$hyp" ] && hyp=$dir/$name".hyp"
 
 # echo "lm "$lm
 # echo "dict "$dict
@@ -55,6 +56,7 @@ do
         -dict) dict=$2; shift;;
         -hmm) hmm=$2; shift;;
         -cepdir) cepdir=$2; shift;;
+        -hyp) hyp=$2; shift;;
 
         # wrong syntax
         *) wrong;; 
