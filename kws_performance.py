@@ -2,9 +2,7 @@
 
 import logging
 import sys
-import os
 from os import path, walk
-from os.path import basename
 
 import argparse
 import subprocess
@@ -12,21 +10,24 @@ import subprocess
 
 from instant import inline
 
-import pocketsphinx as ps
-
-POCKETSPHINX_SHARE_DIR = '/usr/local/share/pocketsphinx/'
-MODELDIR = POCKETSPHINX_SHARE_DIR+'model'
-DATADIR = POCKETSPHINX_SHARE_DIR+'test/data'
-
 
 def setup_logging(level=logging.INFO):
+    """
+    The setup will redirect the standard output to file. Useful for capturing the SWIG
+    library used here.
+    This is done by duplicating the pipe and calling a C function.
+    """
+    from os import fdopen, dup
     logger = logging.getLogger(__name__)
 
     # FORMAT = '%()s-%(funcName)s-%(lineno)d'
     FORMAT = '%(levelname)s:%(name)s:%(funcName)30s:%(lineno)3d $> %(message)s'
     ## redirect SWIG library
-    stdout = os.fdopen(os.dup(sys.stdout.fileno()), 'w')
-    stderr = os.fdopen(os.dup(sys.stderr.fileno()), 'w')
+    stdout = fdopen(dup(sys.stdout.fileno()), 'w')
+    stderr = fdopen(dup(sys.stderr.fileno()), 'w')
+
+    stdout = fdopen(dup(sys.stdout.fileno()), 'w')
+    stderr = fdopen(dup(sys.stderr.fileno()), 'w')
     logging.basicConfig(stream=stderr, level=level, format=FORMAT)
     # logging.basicConfig(stream=stderr, level=logging.INFO)
 
@@ -42,10 +43,10 @@ def setup_logging(level=logging.INFO):
     ch = logging.StreamHandler()
     ch.setLevel(level)
     logger.addHandler(ch)
-
+    ## TODO: log the interesting results to file as a report
 
 class Keyword(object):
-    """docstring for keywordScore"""
+    """docstring for Keyword"""
     def __init__(self, name):
         super(Keyword, self).__init__()
         self.name = name
@@ -55,6 +56,7 @@ class Keyword(object):
         self.falseNegative = 0
 
     ## TODO: make the name the return value in case of a print statement
+    ## pretty print
     # def __print__(self):
 
 
@@ -75,16 +77,21 @@ class KwsScorer(object):
         self.keywordFile = keywordFile
         self.groundTruthScript = groundTruthScript
 
-        self.config_decoder(keywordFile)
-
-        self.store_keywords_from_file(keywordFile)
+        self.decoder = self.get_kws_decoder(keywordFile)
+        self.keyword = self.get_keywords_from_file(keywordFile)
 
     ## investigate class method to instantiate different database
     ##@classmethod
-    def config_decoder(self, keywordFile):
+    def get_kws_decoder(self, keywordFile):
         """Configure the decoder. 
         Only one mode here: keyword spotting. Input is the keyword file.
         """
+        import pocketsphinx as ps
+
+        POCKETSPHINX_SHARE_DIR = '/usr/local/share/pocketsphinx/'
+        MODELDIR = POCKETSPHINX_SHARE_DIR+'model'
+        DATADIR = POCKETSPHINX_SHARE_DIR+'test/data'
+
         config = ps.Decoder.default_config()
         config.set_string('-hmm', path.join(MODELDIR, 'hmm/en_US/hub4wsj_sc_8k'))
         config.set_string('-dict', path.join(MODELDIR, 'lm/en_US/cmu07a.dic'))
@@ -93,67 +100,22 @@ class KwsScorer(object):
         # config.set_string('-lm', path.join(MODELDIR, 'lm/en_US/hub4.5000.DMP'))
         # config.set_string('-adcin', 'yes')
         # config.set_string('-kws_threshold', '-450')
-        self.decoder = ps.Decoder(config)
+        return ps.Decoder(config)
 
-    def store_keywords_from_file(self, keywordFile):
-        """Get and store the keywords from keywords.txt
+    def get_keywords_from_file(self, keywordFile):
+        """
+        Get and store the keywords from keywords.txt
         """
         ## TODO: make sure they are unique
-        self.keywords = set()
-        self.keywordsD = dict()
+        keyword = dict()
         with open(keywordFile, 'r') as f:
             for line in f:
-                keyword = line.replace('\n','')
-                self.keywords.add(keyword)
-                self.keywordsD[keyword] = Keyword(keyword)
+                name = line.replace('\n','')
+                keyword[name] = Keyword(name)
+        return keyword
 
-
-    def store_true_match_from_script(self, transcriptFile):
-        output = subprocess.check_output([self.groundTruthScript, 
-                                          '-t', transcriptFile,
-                                          '-k', self.keywordFile])
-
-            # self.logger.info('output : %s - %s', output, output == '')
-
-        self.trueMatch = dict()
-
-        # match in the transcript
-        if not output == '':
-            for line in output.split('\n')[:-1]:
-                (fileId, keyword) = line.split('#')
-
-                if not self.trueMatch.has_key(fileId):
-                    self.trueMatch[fileId] = [keyword]
-                else:
-                    self.trueMatch[fileId] += [keyword]
-
-
-    def store_true_match_from_file(self, keywordFile):
-        """Get the ground truth or true match from file.
-        This is computed by grep the keyword over the transcription.
-        The bash code is:
-        ```
-        while read line; 
-        do egrep -i "$kw" etc/prompts-original | cut -d' ' -f1 | sed s/.wav// | sed s/$/"#$kw"/; 
-        done < keywords.txt
-        ```
-        """
-        ## get the keywords
-        ## TODO:
-        # - hardcoded
-        # - should be created one way or an other
-
-        self.trueMatch = dict()
-        with open('/Users/toine/Documents/data/voxforge/JayCutlersBrother-20080919-wqq/keywords.match', 'r') as f:
-            for line in f:
-                (fileId, keyword) = line.replace('\n','').split('#')
-                #fileId = path.splitext(fileId)[0]
-                if not self.trueMatch.has_key(fileId):
-                    self.trueMatch[fileId] = [keyword]
-                else:
-                    self.trueMatch[fileId] += [keyword]
-
-                self.logger.debug('%s - %s', fileId, keyword)
+    def decode_parallel(self, rootDir):
+        pass
 
     def decode_root(self, rootDir):
         ## make sure we have the ground truth based on the keywords
@@ -161,9 +123,8 @@ class KwsScorer(object):
         for (curpath, dirnames, names) in walk(rootDir, topdown=True):
 
             ##TODO: log the un-visited directories
-            depth = curpath[len(rootDir) + len(os.path.sep):].count(os.path.sep)
-            if depth == 0 and ['etc','wav'] == dirnames:# 
-            #and curpath == '/Users/toine/Documents/data/voxforge/JayCutlersBrother-20080919-wqq':
+            depth = curpath[len(rootDir) + len(path.sep):].count(path.sep)
+            if depth == 0 and ['etc','wav'] == dirnames and curpath == '/Users/toine/Documents/data/voxforge/JayCutlersBrother-20080919-wqq':
                 self.logger.info('%s _ %s _ %s', curpath, dirnames, names)
 
                 ## compute the number of words and line and shit
@@ -171,10 +132,9 @@ class KwsScorer(object):
                 self.decode_dir(curpath)
 
                 ## create the ground truth from the script and the transcript
-                self.store_true_match_from_script(curpath+'/etc/prompts-original')
+                self.trueMatch = self.get_true_match_from_script(curpath+'/etc/prompts-original')
                 ## score
                 self.score()
-
 
     def decode_dir(self, wdir):
         """Main loop of the decoder, 
@@ -193,9 +153,9 @@ class KwsScorer(object):
                         hypstr = self.decoder.hyp().hypstr
 
                         keywords = list()
-                        for keyword in self.keywords:
-                            if keyword in hypstr:
-                                keywords.append(keyword)
+                        for k,v in self.keyword.iteritems():
+                            if v.name in hypstr:  # this is the same as k actually
+                                keywords.append(v.name)
 
                         fileId = path.splitext(filename)[0]
                         self.decoderMatch[fileId] = keywords
@@ -204,6 +164,23 @@ class KwsScorer(object):
                     except AttributeError:
                         pass
                         # self.logger.debug('%s', filename)
+
+    def get_true_match_from_script(self, transcriptFile):
+        output = subprocess.check_output([self.groundTruthScript,
+                                          '-t', transcriptFile,
+                                          '-k', self.keywordFile])
+        trueMatch = dict()
+
+        # match in the transcript
+        if not output == '':
+            for line in output.split('\n')[:-1]:
+                (fileId, keyword) = line.split('#')
+
+                if not trueMatch.has_key(fileId):
+                    trueMatch[fileId] = [keyword]
+                else:
+                    trueMatch[fileId] += [keyword]
+        return trueMatch
 
     def score(self):
         """
@@ -227,41 +204,32 @@ class KwsScorer(object):
                     # self.logger.info('TP: %s', key)
                     if keyword in self.trueMatch[key]:
                         self.trueMatch[key].remove(keyword)
-                        self.keywordsD[keyword].match += 1
+                        self.keyword[keyword].match += 1
         ## false positive - FP
                     else:
                         # self.logger.info('FP no kw in list: %s', key)
-                        self.keywordsD[keyword].falsePositive += 1
+                        self.keyword[keyword].falsePositive += 1
 
         ## false positive - FP
                 else:
                     # self.logger.info('FP no match in file: %s', key)
-                    self.keywordsD[keyword].falsePositive += 1
+                    self.keyword[keyword].falsePositive += 1
         ## false negative - FN
         for key, keywordList in self.trueMatch.iteritems():
             for keyword in keywordList:
                 # self.logger.info('FN leftovers: %s', key)
-                self.keywordsD[keyword].falseNegative += 1
+                self.keyword[keyword].falseNegative += 1
 
+def main(args):
+    kpa = KwsScorer(args.dir, args.keywords, args.truth)
+    kpa.decode_root(args.dir)
 
-    def n_loop(self):
-        pass
-        ## lets assume the existence of the file keywords.match
-
-# while read line; 
-# do egrep -i "$kw" etc/prompts-original | cut -d' ' -f1 | sed s/$/"#$kw"/; 
-# done < keywords.txt        # while read line; do egrep -i "$line" etc/prompts-original; done < keywords.txt
-        # bashCommand1 = 'while read line; do egrep -i "$line" '
-        # bashCommand2 = '; done < '
-        # bashCommand = bashCommand1+self.workingDir+'/etc/prompts-original'+bashCommand2+'/Users/toine/Documents/dev/mlspeech/'+self.keywordFile
-        # self.logger.info("%s", bashCommand)
-        # process = subprocess.Popen(bashCommand.split(), stdout=subprocess.PIPE)
-        # output = process.communicate()[0]
-        # self.logger.info("%s", output)
-
-    def clean(self):
-        ## remove all the temporary files
-        pass
+    ## print results
+    for k,v in kpa.keyword.iteritems():
+        kpa.logger.info('%s %s %s %s', v.name, 
+                                       v.match, 
+                                       v.falsePositive, 
+                                       v.falseNegative)
 
 if __name__ == '__main__':
     desc = ''.join(['evaluate kws option for pocketsphinx',' '])
@@ -275,27 +243,15 @@ if __name__ == '__main__':
 
     setup_logging(logging.INFO)
 
-    kpa = KwsScorer(args.dir, args.keywords, args.truth)
+    main(args)
 
-#    kpa.store_true_match_from_file(args.keywords)
-
-    kpa.decode_root(args.dir)
-    # kpa.score()
-
-    # kpa.logger.info('%s', kpa.keywordsD)
-
-    ## print results
-    for k,v in kpa.keywordsD.iteritems():
-        kpa.logger.info('%s %s %s %s', v.name, 
-                                       v.match, 
-                                       v.falsePositive, 
-                                       v.falseNegative)
-
-
-
-
-
-
-
-
-
+## results for 30 minutes of running on whole voxforge
+# INFO:__main__:                         score:215 $> decoder match: {}
+# INFO:__main__:                         score:216 $> true match: {}
+# INFO:__main__:                      <module>:292 $> able to walk 17 7 32
+# INFO:__main__:                      <module>:292 $> the spokesman 27 10 22
+# INFO:__main__:                      <module>:292 $> computer 38 39 34
+# INFO:__main__:                      <module>:292 $> tomorrow afternoon 2 0 51
+# INFO:__main__:                      <module>:292 $> its diameter 21 21 30
+# INFO:__main__:                      <module>:292 $> tomorrow 247 294 98
+# INFO:__main__:                      <module>:292 $> vegetation 54 25 34
