@@ -64,7 +64,7 @@ class KwsScorer(object):
         operating characteristic) of CMU sphinx
         on the VoxForge database and on the Buckeye corpus.
     """
-    def __init__(self, workingDir, keywordFile, groundTruthScript=''):
+    def __init__(self, workingDir, keywordFile, groundTruthScript):
         super(KwsScorer, self).__init__()
 
         self.logger = logging.getLogger(__name__)
@@ -107,6 +107,27 @@ class KwsScorer(object):
                 self.keywords.add(keyword)
                 self.keywordsD[keyword] = Keyword(keyword)
 
+
+    def store_true_match_from_script(self, transcriptFile):
+        output = subprocess.check_output([self.groundTruthScript, 
+                                          '-t', transcriptFile,
+                                          '-k', self.keywordFile])
+
+            # self.logger.info('output : %s - %s', output, output == '')
+
+        self.trueMatch = dict()
+
+        # match in the transcript
+        if not output == '':
+            for line in output.split('\n')[:-1]:
+                (fileId, keyword) = line.split('#')
+
+                if not self.trueMatch.has_key(fileId):
+                    self.trueMatch[fileId] = [keyword]
+                else:
+                    self.trueMatch[fileId] += [keyword]
+
+
     def store_true_match_from_file(self, keywordFile):
         """Get the ground truth or true match from file.
         This is computed by grep the keyword over the transcription.
@@ -138,42 +159,21 @@ class KwsScorer(object):
         ## make sure we have the ground truth based on the keywords
 
         for (curpath, dirnames, names) in walk(rootDir, topdown=True):
-            
+
+            ##TODO: log the un-visited directories
             depth = curpath[len(rootDir) + len(os.path.sep):].count(os.path.sep)
-            #self.logger.info('depth : %d', depth)
-            if depth == 0:
+            if depth == 0 and ['etc','wav'] == dirnames:# 
+            #and curpath == '/Users/toine/Documents/data/voxforge/JayCutlersBrother-20080919-wqq':
+                self.logger.info('%s _ %s _ %s', curpath, dirnames, names)
 
-            # for dirname in dirnames:
-                # for (c, d, n) in walk(dirname):
+                ## compute the number of words and line and shit
+                ## decode_dir
+                self.decode_dir(curpath)
 
-                self.logger.info('%s _ %s ', curpath, names)
-                    ## sanity check
-                    # if not 'wav' in d and 'etc' in d:
-                    #     self.logger.error('wav or etc directory is missing')
-                    #     continue
-
-                    # ## create ground truth
-                    # if self.groundTruthScript != '':
-                    #     output = subprocess.check_output([self.groundTruthScript, '-k', self.keywordFile])
-
-                    #     self.trueMatch = dict()
-                    #     for line in output.split('\n')[:-1]:
-                    #         (fileId, keyword) = line.split('#')
-
-                    #         if not self.trueMatch.has_key(fileId):
-                    #             self.trueMatch[fileId] = [keyword]
-                    #         else:
-                    #             self.trueMatch[fileId] += [keyword]
-
-                    # ## compute the number of words and line and shit
-
-                    # ## decode_dir
-                    # self.decode_dir(dirname)
-                    # ## score
-                    # self.score()
-
-# def store_true_match_from_script(self, keywordFile):
-#     pass
+                ## create the ground truth from the script and the transcript
+                self.store_true_match_from_script(curpath+'/etc/prompts-original')
+                ## score
+                self.score()
 
 
     def decode_dir(self, wdir):
@@ -199,9 +199,11 @@ class KwsScorer(object):
 
                         fileId = path.splitext(filename)[0]
                         self.decoderMatch[fileId] = keywords
-                        self.logger.info('%s - %s', filename, keywords)
+                        # self.logger.info('%s - %s', filename, keywords)
+                    # TODO: no detection - maybe log that somewhere
                     except AttributeError:
-                        self.logger.debug('%s', filename)
+                        pass
+                        # self.logger.debug('%s', filename)
 
     def score(self):
         """
@@ -218,33 +220,28 @@ class KwsScorer(object):
         for key,keywordList in self.decoderMatch.iteritems():
             for keyword in keywordList:
 
-                self.logger.info('loop: %s _ %s', key, keyword)
+                # self.logger.info('loop: %s _ %s', key, keyword)
 
                 if self.trueMatch.has_key(key):
         ## match - true positive - TP
-                    self.logger.info('TP: %s', key)
+                    # self.logger.info('TP: %s', key)
                     if keyword in self.trueMatch[key]:
                         self.trueMatch[key].remove(keyword)
                         self.keywordsD[keyword].match += 1
         ## false positive - FP
                     else:
-                        self.logger.info('FP no kw in list: %s', key)
+                        # self.logger.info('FP no kw in list: %s', key)
                         self.keywordsD[keyword].falsePositive += 1
 
         ## false positive - FP
                 else:
-                    self.logger.info('FP no match in file: %s', key)
+                    # self.logger.info('FP no match in file: %s', key)
                     self.keywordsD[keyword].falsePositive += 1
         ## false negative - FN
         for key, keywordList in self.trueMatch.iteritems():
             for keyword in keywordList:
-                self.logger.info('FN leftovers: %s', key)
+                # self.logger.info('FN leftovers: %s', key)
                 self.keywordsD[keyword].falseNegative += 1
-
-        # need to score the 
-        # self.decoderMatch
-        # self.trueMatch
-        pass
 
 
     def n_loop(self):
@@ -272,14 +269,16 @@ if __name__ == '__main__':
 
     parser.add_argument('--dir', '-d', metavar='path', help='path to the data', required=True)
     parser.add_argument('--keywords', '-k', metavar='file', help='keyword file', required=True)
+    parser.add_argument('--truth', '-t', metavar='file', help='script for ground truth', required=True)
 
     args = parser.parse_args()
 
     setup_logging(logging.INFO)
 
-    kpa = KwsScorer(args.dir, args.keywords)
+    kpa = KwsScorer(args.dir, args.keywords, args.truth)
 
-    kpa.store_true_match_from_file(args.keywords)
+#    kpa.store_true_match_from_file(args.keywords)
+
     kpa.decode_root(args.dir)
     # kpa.score()
 
