@@ -4,80 +4,21 @@ import time
 import logging
 import sys
 from os import path, walk
+from os import symlink, remove, errno
 
+import datetime
 import argparse
 import subprocess
 
+from config import decoder
+from config import keyword
+from config.keyword import Keyword, get_keywords_from_file
 
-class Keyword(object):
-    """
-    Encapsulate different keyword information:
-    - the keyword string
-    - statistic gathered during the test:
-      - number of match
-      - number of false positive
-      - number of false negative
-
-    The addition of two keywords is defined when the names are equals.
-    """
-    def __init__(self, name):
-        super(Keyword, self).__init__()
-        self.name = name
-        
-        self.match = 0
-        self.falsePositive = 0
-        self.falseNegative = 0
-
-    def __add__(self, other):
-        if self.name != other.name:
-            raise NameError('Keyword name must match when adding.')
-        self.match += other.match
-        self.falsePositive += other.falsePositive
-        self.falseNegative += other.falseNegative
-        return self
-
-    def __repr__(self):
-        return 'Keyword(%s, m=%s, fpos=%s, fneg=%s)' % (self.name,self.match,self.falsePositive,self.falseNegative)
-
-## investigate class method to instantiate different database
-##@classmethod
-def get_kws_decoder(keywordFile):
-    """
-    Configure the decoder.
-    Only one mode here: keyword spotting. Input is the keyword file.
-    """
-    import pocketsphinx as ps
-
-    POCKETSPHINX_SHARE_DIR = '/usr/local/share/pocketsphinx/'
-    MODELDIR = POCKETSPHINX_SHARE_DIR+'model'
-    DATADIR = POCKETSPHINX_SHARE_DIR+'test/data'
-
-    config = ps.Decoder.default_config()
-    config.set_string('-hmm', path.join(MODELDIR, 'hmm/en_US/hub4wsj_sc_8k'))
-    config.set_string('-dict', path.join(MODELDIR, 'lm/en_US/cmu07a.dic'))
-    config.set_string('-kws', keywordFile)
-
-    ## not used parameters
-    # config.set_string('-lm', path.join(MODELDIR, 'lm/en_US/hub4.5000.DMP'))
-    # config.set_string('-adcin', 'yes')
-
-    #TODO: do some MonteCarlo on this
-    # config.set_int('-kws_threshold', 1000)
-
-    return ps.Decoder(config)
-
-def get_keywords_from_file(keywordFile):
-    """
-    Get and store the keywords from keywords.txt
-    """
-    ## TODO: make sure they are unique
-    keyword = dict()
-    with open(keywordFile, 'r') as f:
-        for line in f:
-            name = line.replace('\n','')
-            keyword[name] = Keyword(name)
-    return keyword
-
+class ProcessedItem(object):
+    """docstring for ProcessedItem"""
+    def __init__(self):
+        super(ProcessedItem, self).__init__()
+        self.nItems = 0
 
 from multiprocessing import Process, JoinableQueue, cpu_count
 
@@ -87,6 +28,10 @@ class Worker(Process):
     It reports its findings that will then be aggregated to the others workers.
     """
     def __init__(self, job, res, keywordFile, groundTruthScript):
+        """
+        Init a worker with information on the job and results queues, the keywords
+        and the database used.
+        """
         super(Worker, self).__init__()
 
         ##TODO: 
@@ -94,14 +39,18 @@ class Worker(Process):
         # - standardise the interface towards the decoder to make it flexible
         #   CMU-Sphinx, Google, ...
 
-        self.logger = logging.getLogger(self.name)
+        self.logger = logging.getLogger(__name__+'.'+self.name)
+        self.logger.info('alive')
+
         self.jobQueue = job
         self.resQueue = res
 
         self.keywordFile = keywordFile
-        self.decoder = get_kws_decoder(keywordFile)
-        self.keyword = get_keywords_from_file(keywordFile)
+        self.decoder = decoder.get_kws_decoder(keywordFile)
+        self.keyword = keyword.get()
         self.groundTruthScript = groundTruthScript
+
+        self.processedItem = ProcessedItem()
 
     def run(self):
         """
@@ -109,50 +58,67 @@ class Worker(Process):
         and post the results back after the "Die" command is received.
         """
         for data in iter(self.jobQueue.get, None):
-            if data == 'Die':
+            if data != 'Die':
+                self.decoderMatch = self._decode_dir(data)
+                self.trueMatch = self.get_true_match_from_script(data+'/etc/prompts-original')
+                self._score()  # compare decoder match with true match
+
+                self.processedItem.nItems += 1
                 self.jobQueue.task_done()
 
+            else:  ## report and Die !
+                self.logger.info('Die')
+                self.jobQueue.task_done()
                 # unpack the dictionnary : IS THAT NEEDED?
                 for k,v in self.keyword.iteritems():
                     self.resQueue.put(v)
+                self.resQueue.put(self.processedItem)
                 break
 
-            #else:
-            self.decode_dir(data)
-            self.trueMatch = self.get_true_match_from_script(data+'/etc/prompts-original')
-            self.score()
-
-            self.jobQueue.task_done()
-
-    def decode_dir(self, wdir):
+    def _decode_dir(self, wdir):
         """
-        Main loop of the decoder,
-        will perform the decoding over all the directory under the VoxForge dataset.
-        will save and score the decoding against the transcription.
+        Perform the decoding under one directory. Usually one directory contains several
+        files to be decoded.
+        Return the matches as a dict with key fileid (no extension) and value is list of keywords.
         """
-        self.decoderMatch = dict()
+        decoderMatch = dict()
 
-        ## for one directory
-        ## structure is name-id/[wav,etc]
-        for (curpath, dirnames, names) in walk(wdir+'/wav'):
-            for filename in names:
-                with open(curpath+'/'+filename, 'r') as f:
-                    self.decoder.decode_raw(f)
-                    try:
-                        hypstr = self.decoder.hyp().hypstr
+        ## this has to be wrapped into a decoder call .. to be usable by Google too
+        for (filename, f) in db.walk_worker(wdir):
+            self.decoder.decode_raw(f)
+            try:
+                hypstr = self.decoder.hyp().hypstr
 
-                        keywords = list()
-                        for k,v in self.keyword.iteritems():
-                            if v.name in hypstr:  # this is the same as k actually
-                                keywords.append(v.name)
+                keywords = list()
+                for k,v in self.keyword.iteritems():
+                    if v.name in hypstr:  # this is the same as k actually
+                        keywords.append(v.name)
 
-                        fileId = path.splitext(filename)[0]
-                        self.decoderMatch[fileId] = keywords
-                        # self.logger.info('%s - %s', filename, keywords)
-                    # TODO: no detection - maybe log that somewhere
-                    except AttributeError:
-                        pass
-                        # self.logger.debug('%s', filename)
+                fileId = path.splitext(filename)[0]
+                decoderMatch[fileId] = keywords
+            except AttributeError:
+                pass  # no detection from decoder
+        return decoderMatch
+
+    def get_true_match(self, wdir):
+        transcriptFile = wdir+self.transcriptFileExt
+
+        output = subprocess.check_output([self.groundTruthScript,
+                                          '-t', transcriptFile,
+                                          '-k', self.keywordFile])
+        trueMatch = dict()
+
+        # match in the transcript
+        if not output == '':
+            for line in output.split('\n')[:-1]:
+                (fileId, keyword) = line.split('#')
+
+                if not trueMatch.has_key(fileId):
+                    trueMatch[fileId] = [keyword]
+                else:
+                    trueMatch[fileId] += [keyword]
+        return trueMatch
+
 
     def get_true_match_from_script(self, transcriptFile):
         """
@@ -175,7 +141,7 @@ class Worker(Process):
                     trueMatch[fileId] += [keyword]
         return trueMatch
 
-    def score(self):
+    def _score(self):
         """
         compute the score per keywords
         that is the number of match
@@ -195,7 +161,7 @@ class Worker(Process):
         ## match - true positive - TP
                     if keyword in self.trueMatch[key]:
                         self.trueMatch[key].remove(keyword)
-                        self.keyword[keyword].match += 1
+                        self.keyword[keyword].truePositive += 1
         ## false positive - FP
                     else:
                         self.keyword[keyword].falsePositive += 1
@@ -207,25 +173,39 @@ class Worker(Process):
             for keyword in keywordList:
                 self.keyword[keyword].falseNegative += 1
 
+def force_symlink(file1, file2):
+    try:
+        symlink(file1, file2)
+    except OSError as e:
+        if e.errno == errno.EEXIST:
+            remove(file2)
+            symlink(file1, file2)
+
 class KwsScorer(object):
     """docstring for KwsScorer
     the class is made to evaluate the performance in term of ROC (receiver
     operating characteristic) of CMU sphinx
     on the VoxForge database and on the Buckeye corpus.
     """
-    def __init__(self, workingDir, keywordFile, groundTruthScript):
+    def __init__(self, keywordFile, groundTruthScript):
         super(KwsScorer, self).__init__()
 
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(__name__+'.report')
+        # create file handler 
+        _date, _time = str(datetime.datetime.now())[:-7].split()
+        _time = _time.replace(':','-')
+        log_filename='./log/'+_date+'_'+_time
+        force_symlink(log_filename, './last_log')
+        fh = logging.FileHandler(log_filename)
+        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+        fh.setFormatter(formatter)
+        self.logger.addHandler(fh)
+        ## dump the configuration
 
-        self.logger.info('keywordFile: %s', keywordFile)
-
-        self.workingDir = workingDir
         self.keywordFile = keywordFile
         self.groundTruthScript = groundTruthScript
 
-        self.decoder = get_kws_decoder(keywordFile)
-        self.keyword = get_keywords_from_file(keywordFile)
+        self.keyword = keyword.get()
 
         self.jobQueue = JoinableQueue()
         self.resQueue = JoinableQueue()
@@ -236,38 +216,30 @@ class KwsScorer(object):
             w = Worker(self.jobQueue, self.resQueue, self.keywordFile, self.groundTruthScript)
             w.start()
 
-    def run(self, rootDir):
+    def run(self):
         start_time = time.time()
-        self.decode_parallel(rootDir)
+
+        self._create_job_and_wait()
+        self._get_results()
+
         self.logger.info("%s seconds", time.time() - start_time)
 
-    def decode_parallel(self, rootDir):
-        """
-        This will walk and post each directory to be decoded in the job queue.
-        """
-        nCpu = self.nCpu
-
-        for (curpath, dirnames, names) in walk(rootDir, topdown=True):
-            depth = curpath[len(rootDir) + len(path.sep):].count(path.sep)
-            if depth == 0 and ['etc','wav'] == dirnames: # and curpath == '/Users/toine/Documents/data/voxforge/JayCutlersBrother-20080919-wqq':
-                self.jobQueue.put(curpath)
-
-        for i in range(nCpu):
+    def _create_job_and_wait(self):
+        for wdir in db.walk_scorer():
+            self.jobQueue.put(wdir)
+        for i in range(self.nCpu):
             self.jobQueue.put('Die')  # as many time as there are some workers
         self.jobQueue.join()  # wait till the workers are all done
 
-
-        ## collect the results from the workers
-        nRes = len(self.keyword) * nCpu
+    def _get_results(self):
+        nRes = (len(self.keyword) + 1) * self.nCpu
         while nRes:
             data = self.resQueue.get()
-            # self.logger.info('get a res %s', data.__class__)
-            # self.logger.info('data: %s', data)
 
-            # if data.__class__ == Keyword:
-            self.keyword[data.name] += data
-
-            # self.logger.info('self.keyword: %s', self.keyword)
+            if isinstance(data, Keyword):
+                self.keyword[data.name] += data
+            elif isinstance(data, ProcessedItem):
+                self.logger.info('processed Items: %s', data.nItems)
             nRes -= 1
 
 def setup_logging(level=logging.INFO):
@@ -283,6 +255,7 @@ def setup_logging(level=logging.INFO):
     FORMAT = '%(levelname)s:%(name)s:%(funcName)30s:%(lineno)3d $> %(message)s'
 
     ## redirect SWIG library
+    ## TODO: maybe set the log level at compilation time
     stdout = fdopen(dup(sys.stdout.fileno()), 'w')
     stderr = fdopen(dup(sys.stderr.fileno()), 'w')
     logging.basicConfig(stream=stderr, level=level, format=FORMAT)
@@ -306,35 +279,40 @@ def setup_logging(level=logging.INFO):
     # logger.addHandler(ch)
 
 
-
-
 def main(args):
-
-    kpa = KwsScorer(args.dir, args.keywords, args.truth)
-    kpa.run(args.dir)
+    kpa = KwsScorer(args.keywords, args.truth)
+    kpa.run()
 
     ## print results
     for k,v in kpa.keyword.iteritems():
         kpa.logger.info('%s %s %s %s', v.name,
-                                       v.match,
+                                       v.truePositive,
                                        v.falsePositive,
                                        v.falseNegative)
-
     ## 
-    # sensitivity = self.match / (self.match + self.falseNegative)
+    # sensitivity = self.truePositive / (self.truePositive + self.falseNegative)
     # specificity = voxforgeTotal / (voxforgeTotal + self.falsePositive)
 
 if __name__ == '__main__':
     desc = ''.join(['evaluate kws option for pocketsphinx',' '])
     parser = argparse.ArgumentParser(description=desc)
 
-    parser.add_argument('--dir', '-d', metavar='path', help='path to the data', required=True)
     parser.add_argument('--truth', '-t', metavar='file', help='script for ground truth', required=True)
+    ## TODO: if keyword is not a file, make it a file
     parser.add_argument('--keywords', '-k', metavar='file', help='keyword file', required=True)
+    parser.add_argument('--database', '-db', metavar='name', help='database to use', required=True)
+
+    ## TODO: add a debug flag. In case of Voxforge, the db is turned in voxforge.part
 
     args = parser.parse_args()
 
     setup_logging(logging.INFO)
+
+    print args
+    ## TODO: provide the database in use
+    # and call it like
+    # add a case like control structure
+    from config import voxforge as db
 
     main(args)
 
