@@ -1,7 +1,6 @@
 #!/usr/local/bin/python
 
-keywords = """
-plenty of
+keywords = """plenty of
 tearing at
 spears and
 a couple of
@@ -25,8 +24,9 @@ token that
 glimmer of
 overt acts
 contributed to
-toothbrush is
-"""
+toothbrush is"""
+
+keywordFile = 'config/keywords.txt'
 
 ## on import create the keyword file
 # - save a potential existing file?

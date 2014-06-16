@@ -2,17 +2,15 @@
 
 from os import walk, path
 
+## data: 77035 wav files
+
 ## TODO: could wrap this as a db class and make mandatory to define some function and variables
 
-# root = '/Users/toine/Documents/data/voxforge/'
-# data = root+'main_16kHz_16bit/extracted'
+root = '/Users/toine/Documents/data/voxforge/'
+data = root+'main_16kHz_16bit/extracted'
 
-root = '/Users/toine/Documents/data/voxforge.part/'
-data = root+''
-
-
-transcriptFileExt = '/etc/prompts-original'
-groundTruthScript = './ground_truth_voxforge.sh'
+# root = '/Users/toine/Documents/data/voxforge.part/'
+# data = root+''
 
 def walk_scorer():
     """
@@ -28,6 +26,7 @@ def walk_scorer():
         if depth == 0 and ['etc','wav'] == dirnames:
             yield curpath
 
+
 def walk_worker(wdir):
     """
     Will walk the worker into the wav subdirectory.
@@ -37,3 +36,27 @@ def walk_worker(wdir):
         for filename in names:
             with open(curpath+'/'+filename, 'r') as f:
                 yield (filename, f)
+
+import subprocess
+
+transcriptFileExt = '/etc/prompts-original'
+groundTruthScript = './ground_truth_voxforge.sh'
+
+def get_true_match(wdir, keywordFile):
+    transcriptFile = wdir+transcriptFileExt
+
+    output = subprocess.check_output([groundTruthScript,
+                                      '-t', transcriptFile,
+                                      '-k', keywordFile])
+    trueMatch = dict()
+
+    # match in the transcript
+    if not output == '':
+        for line in output.split('\n')[:-1]:
+            (fileId, keyword) = line.split('#')
+
+            if not trueMatch.has_key(fileId):
+                trueMatch[fileId] = [keyword]
+            else:
+                trueMatch[fileId] += [keyword]
+    return trueMatch

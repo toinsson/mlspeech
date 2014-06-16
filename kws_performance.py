@@ -16,9 +16,13 @@ from config.keyword import Keyword, get_keywords_from_file
 
 class ProcessedItem(object):
     """docstring for ProcessedItem"""
-    def __init__(self):
+    def __init__(self, value=0):
         super(ProcessedItem, self).__init__()
-        self.nItems = 0
+        self.nItems = value
+
+    def __add__(self, other):
+        self.nItems += other.nItems
+        return self
 
 from multiprocessing import Process, JoinableQueue, cpu_count
 
@@ -27,17 +31,12 @@ class Worker(Process):
     The worker has its own instance of a Sphinx and will walk its share of the database.
     It reports its findings that will then be aggregated to the others workers.
     """
-    def __init__(self, job, res, keywordFile, groundTruthScript):
+    def __init__(self, job, res):
         """
         Init a worker with information on the job and results queues, the keywords
         and the database used.
         """
         super(Worker, self).__init__()
-
-        ##TODO: 
-        # - save the number of files processed
-        # - standardise the interface towards the decoder to make it flexible
-        #   CMU-Sphinx, Google, ...
 
         self.logger = logging.getLogger(__name__+'.'+self.name)
         self.logger.info('alive')
@@ -45,10 +44,9 @@ class Worker(Process):
         self.jobQueue = job
         self.resQueue = res
 
-        self.keywordFile = keywordFile
-        self.decoder = decoder.get_kws_decoder(keywordFile)
         self.keyword = keyword.get()
-        self.groundTruthScript = groundTruthScript
+        self.keywordFile = keyword.keywordFile
+        self.decoder = decoder.Decoder(keyword.keywordFile)
 
         self.processedItem = ProcessedItem()
 
@@ -59,11 +57,11 @@ class Worker(Process):
         """
         for data in iter(self.jobQueue.get, None):
             if data != 'Die':
-                self.decoderMatch = self._decode_dir(data)
-                self.trueMatch = self.get_true_match_from_script(data+'/etc/prompts-original')
+                (nItems, self.decoderMatch) = self._decode_dir(data) # shoudl come from decoder.
+                self.trueMatch = db.get_true_match(data, self.keywordFile)
                 self._score()  # compare decoder match with true match
 
-                self.processedItem.nItems += 1
+                self.processedItem.nItems += nItems
                 self.jobQueue.task_done()
 
             else:  ## report and Die !
@@ -82,64 +80,12 @@ class Worker(Process):
         Return the matches as a dict with key fileid (no extension) and value is list of keywords.
         """
         decoderMatch = dict()
+        nItems = 0
 
-        ## this has to be wrapped into a decoder call .. to be usable by Google too
         for (filename, f) in db.walk_worker(wdir):
-            self.decoder.decode_raw(f)
-            try:
-                hypstr = self.decoder.hyp().hypstr
-
-                keywords = list()
-                for k,v in self.keyword.iteritems():
-                    if v.name in hypstr:  # this is the same as k actually
-                        keywords.append(v.name)
-
-                fileId = path.splitext(filename)[0]
-                decoderMatch[fileId] = keywords
-            except AttributeError:
-                pass  # no detection from decoder
-        return decoderMatch
-
-    def get_true_match(self, wdir):
-        transcriptFile = wdir+self.transcriptFileExt
-
-        output = subprocess.check_output([self.groundTruthScript,
-                                          '-t', transcriptFile,
-                                          '-k', self.keywordFile])
-        trueMatch = dict()
-
-        # match in the transcript
-        if not output == '':
-            for line in output.split('\n')[:-1]:
-                (fileId, keyword) = line.split('#')
-
-                if not trueMatch.has_key(fileId):
-                    trueMatch[fileId] = [keyword]
-                else:
-                    trueMatch[fileId] += [keyword]
-        return trueMatch
-
-
-    def get_true_match_from_script(self, transcriptFile):
-        """
-        Get the ground truth from the transcript file.
-        The file is grepped with each keyword and match are reported.
-        """
-        output = subprocess.check_output([self.groundTruthScript,
-                                          '-t', transcriptFile,
-                                          '-k', self.keywordFile])
-        trueMatch = dict()
-
-        # match in the transcript
-        if not output == '':
-            for line in output.split('\n')[:-1]:
-                (fileId, keyword) = line.split('#')
-
-                if not trueMatch.has_key(fileId):
-                    trueMatch[fileId] = [keyword]
-                else:
-                    trueMatch[fileId] += [keyword]
-        return trueMatch
+            self.decoder.decode(f, filename, self.keyword, decoderMatch)
+            nItems += 1
+        return (nItems, decoderMatch)
 
     def _score(self):
         """
@@ -187,7 +133,7 @@ class KwsScorer(object):
     operating characteristic) of CMU sphinx
     on the VoxForge database and on the Buckeye corpus.
     """
-    def __init__(self, keywordFile, groundTruthScript):
+    def __init__(self):
         super(KwsScorer, self).__init__()
 
         self.logger = logging.getLogger(__name__+'.report')
@@ -202,10 +148,9 @@ class KwsScorer(object):
         self.logger.addHandler(fh)
         ## dump the configuration
 
-        self.keywordFile = keywordFile
-        self.groundTruthScript = groundTruthScript
-
         self.keyword = keyword.get()
+
+        self.processedItem = ProcessedItem()
 
         self.jobQueue = JoinableQueue()
         self.resQueue = JoinableQueue()
@@ -213,7 +158,7 @@ class KwsScorer(object):
         self.nCpu = cpu_count()
 
         for i in range(self.nCpu):
-            w = Worker(self.jobQueue, self.resQueue, self.keywordFile, self.groundTruthScript)
+            w = Worker(self.jobQueue, self.resQueue)
             w.start()
 
     def run(self):
@@ -239,6 +184,7 @@ class KwsScorer(object):
             if isinstance(data, Keyword):
                 self.keyword[data.name] += data
             elif isinstance(data, ProcessedItem):
+                self.processedItem += data
                 self.logger.info('processed Items: %s', data.nItems)
             nRes -= 1
 
@@ -280,7 +226,8 @@ def setup_logging(level=logging.INFO):
 
 
 def main(args):
-    kpa = KwsScorer(args.keywords, args.truth)
+    # kpa = KwsScorer(args.keywords, args.truth)
+    kpa = KwsScorer()
     kpa.run()
 
     ## print results
@@ -297,23 +244,17 @@ if __name__ == '__main__':
     desc = ''.join(['evaluate kws option for pocketsphinx',' '])
     parser = argparse.ArgumentParser(description=desc)
 
-    parser.add_argument('--truth', '-t', metavar='file', help='script for ground truth', required=True)
     ## TODO: if keyword is not a file, make it a file
-    parser.add_argument('--keywords', '-k', metavar='file', help='keyword file', required=True)
-    parser.add_argument('--database', '-db', metavar='name', help='database to use', required=True)
-
     ## TODO: add a debug flag. In case of Voxforge, the db is turned in voxforge.part
-
+    ## TODO: add decoder flag
+    ## TODO: 
+    parser.add_argument('--database', '-db', metavar='name', help='database to use. ex: voxforge', required=True)
     args = parser.parse_args()
 
+    if args.database == 'voxforge':
+        from config import voxforge as db
+
     setup_logging(logging.INFO)
-
-    print args
-    ## TODO: provide the database in use
-    # and call it like
-    # add a case like control structure
-    from config import voxforge as db
-
     main(args)
 
 ## results for 30 minutes of running on whole voxforge
