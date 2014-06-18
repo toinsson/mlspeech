@@ -26,7 +26,6 @@ def walk_scorer():
         if depth == 0 and ['etc','wav'] == dirnames:
             yield curpath
 
-
 def walk_worker(wdir):
     """
     Will walk the worker into the wav subdirectory.
@@ -40,7 +39,7 @@ def walk_worker(wdir):
 import subprocess
 
 transcriptFileExt = '/etc/prompts-original'
-groundTruthScript = './ground_truth_voxforge.sh'
+groundTruthScript = './config/ground_truth_voxforge.sh'
 
 def get_true_match(wdir, keywordFile):
     transcriptFile = wdir+transcriptFileExt

@@ -28,7 +28,7 @@ class Decoder(ps.Decoder):
         # config.set_string('-adcin', 'yes')
 
         #TODO: do some MonteCarlo on this
-        config.set_int('-kws_threshold', 1)
+        config.set_int('-kws_threshold', -int(1e6))
 
         super(Decoder, self).__init__(config)
 

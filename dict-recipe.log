@@ -1,0 +1,93 @@
+## dictionnary extraction
+
+## under voxforge
+find . -name prompts-original | xargs cat >> prompts-originals.txt
+
+## remove the first column
+cut -d " " -f 2- prompts-originals.txt > p-o.txt.1
+
+## clean the data
+sed -i.bak s/[.,;\"]//g prompts-originals.txt.1
+tr '[:upper:]' '[:lower:]' < input.txt > output.txt
+
+## sort by frequency and unique words
+
+cat p-o.txt | tr "\"' " '\n' | sort | uniq -c | sort -k 1 -n -r
+
+
+
+text2wfreq < prompts-originals.txt | wfreq2vocab > voxforge.vocab
+text2idngram -vocab voxforge.vocab -idngram voxforge.idngram < prompts-originals.txt
+idngram2lm -vocab_type 0 -idngram weather.idngram -vocab weather.vocab -arpa weather.arpa
+
+
+sed -n '/1-grams:/,/2-grams:/ p' voxforge.arpa > voxforge.arpa.1grams
+sed -n '/2-grams:/,/3-grams:/ p' voxforge.arpa > voxforge.arpa.2grams 
+sed -n '/3-grams:/,/\end/ p' voxforge.arpa > voxforge.arpa.3grams
+
+sort -r -n voxforge.arpa.1grams | head -n 30
+
+
+
+sort -r -n voxforge.arpa.[123]grams | head -n 30 
+-0.0031 plenty of -1.1131
+-0.0038 tearing at -1.9090
+-0.0040 spears and -2.0724
+-0.0040 a couple of 
+-0.0041 hatred and -2.0634
+-0.0046 le beau -0.0135
+-0.0050 portuguese boy -1.8643
+-0.0052 iota of -1.9171
+-0.0053 computing power -1.5464
+-0.0055 violation of -1.7539
+-0.0056 trying to -0.4828
+-0.0058 spur of -1.7884
+-0.0059 norsemen considered -1.3318
+-0.0059 foretell war -1.1959
+-0.0060 sun's rays -1.2637
+-0.0060 according to -0.9409
+-0.0063 refraction by -1.7037
+-0.0063 owls were -1.8238
+-0.0063 moose-birds were -1.8159
+-0.0063 big-eyedclucking moose-birds 0.0063
+-0.0064 revolvers and -1.8229
+-0.0064 managed to -1.8242
+-0.0064 associated with -1.1471
+-0.0065 token that -1.8100
+-0.0065 hebrews it -1.6934
+-0.0065 glimmer of -1.8180
+-0.0066 oyster piratesnicholas 0.0000
+-0.0066 overt acts -0.7398
+-0.0066 contributed to -1.7734
+-0.0067 toothbrush is -1.7953
+
+plenty of
+tearing at
+spears and
+a couple of
+hatred and
+le beau
+portuguese boy
+iota of
+computing power
+violation of
+trying to
+spur of
+norsemen considered
+foretell war
+sun's rays
+according to
+refraction by
+owls were
+moose-birds were
+big-eyedclucking moose-bird
+revolvers and
+managed to
+associated with
+token that
+hebrews it
+glimmer of
+oyster piratesnichola
+overt acts
+contributed to
+toothbrush is

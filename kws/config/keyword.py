@@ -1,6 +1,11 @@
 #!/usr/local/bin/python
 
-keywords = """plenty of
+keywords = "\n".join(['what do you want',
+                      'are you going to',
+                      '',
+                      ])
+
+keywords_most_probable = """plenty of
 tearing at
 spears and
 a couple of

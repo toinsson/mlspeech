@@ -4,7 +4,6 @@ import time
 import logging
 import sys
 from os import path, walk
-from os import symlink, remove, errno
 
 import datetime
 import argparse
@@ -13,6 +12,8 @@ import subprocess
 from config import decoder
 from config import keyword
 from config.keyword import Keyword, get_keywords_from_file
+
+from utils import force_symlink
 
 class ProcessedItem(object):
     """docstring for ProcessedItem"""
@@ -96,9 +97,6 @@ class Worker(Process):
 
         TODO: put some test, in test function or in docstrings
         """
-        # self.logger.debug('decoder match: %s', self.decoderMatch)
-        # self.logger.debug('true match: %s', self.trueMatch)
-
         ## for one directory
         for key,keywordList in self.decoderMatch.iteritems():
             for keyword in keywordList:
@@ -119,13 +117,6 @@ class Worker(Process):
             for keyword in keywordList:
                 self.keyword[keyword].falseNegative += 1
 
-def force_symlink(file1, file2):
-    try:
-        symlink(file1, file2)
-    except OSError as e:
-        if e.errno == errno.EEXIST:
-            remove(file2)
-            symlink(file1, file2)
 
 class KwsScorer(object):
     """docstring for KwsScorer
@@ -149,7 +140,6 @@ class KwsScorer(object):
         ## dump the configuration
 
         self.keyword = keyword.get()
-
         self.processedItem = ProcessedItem()
 
         self.jobQueue = JoinableQueue()
@@ -220,9 +210,9 @@ def setup_logging(level=logging.INFO):
     ## TODO: log the interesting results to file as a report
 
     ## result logger - report
-    # ch = logging.FileHandler()
-    # ch.setLevel(level)
-    # logger.addHandler(ch)
+    ch = logging.FileHandler('report.log')
+    ch.setLevel(level)
+    logger.addHandler(ch)
 
 
 def main(args):
@@ -232,11 +222,21 @@ def main(args):
 
     ## print results
     for k,v in kpa.keyword.iteritems():
-        kpa.logger.info('%s %s %s %s', v.name,
-                                       v.truePositive,
-                                       v.falsePositive,
-                                       v.falseNegative)
-    ## 
+        voxforgeTotal = kpa.processedItem.nItems
+        try:
+            trueNegative = voxforgeTotal - (v.truePositive + v.falsePositive + v.falseNegative)
+            sensitivity = float(v.truePositive) / (v.truePositive + v.falseNegative)
+            specificity = float(trueNegative) / (trueNegative + v.falsePositive)
+        except ZeroDivisionError:
+            sensitivity = specificity = 'NaN'
+
+        kpa.logger.info('%s %s %s %s %s %s', v.name,
+                                             v.truePositive,
+                                             v.falsePositive,
+                                             v.falseNegative,
+                                             sensitivity,
+                                             specificity)
+    ##
     # sensitivity = self.truePositive / (self.truePositive + self.falseNegative)
     # specificity = voxforgeTotal / (voxforgeTotal + self.falsePositive)
 
