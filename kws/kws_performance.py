@@ -9,17 +9,26 @@ import datetime
 import argparse
 import subprocess
 
-from config import decoder
+## TODO: change the path
 from config import keyword
-from config.keyword import Keyword, get_keywords_from_file
+from config.keyword import Keyword
 
 from utils import force_symlink
+
+import importlib
+import imp
+
+
+## this should depend on the config
+# from config import pocketsphinx_wrapper as decoder
+# from config import voxforge as db
 
 class ProcessedItem(object):
     """docstring for ProcessedItem"""
     def __init__(self, value=0):
         super(ProcessedItem, self).__init__()
         self.nItems = value
+        ## TODO: add the CPU time
 
     def __add__(self, other):
         self.nItems += other.nItems
@@ -32,7 +41,7 @@ class Worker(Process):
     The worker has its own instance of a Sphinx and will walk its share of the database.
     It reports its findings that will then be aggregated to the others workers.
     """
-    def __init__(self, job, res):
+    def __init__(self, job, res, **kwargs):
         """
         Init a worker with information on the job and results queues, the keywords
         and the database used.
@@ -40,14 +49,17 @@ class Worker(Process):
         super(Worker, self).__init__()
 
         self.logger = logging.getLogger(__name__+'.'+self.name)
-        self.logger.info('alive')
+        self.logger.debug('alive')
 
         self.jobQueue = job
         self.resQueue = res
 
         self.keyword = keyword.get()
         self.keywordFile = keyword.keywordFile
-        self.decoder = decoder.Decoder(keyword.keywordFile)
+        # self.decoder = decoder.Decoder(keywordFile=keyword.keywordFile)
+        self.decoder = decoder.Decoder(keywordFile=keyword.keywordFile, **kwargs)
+
+        # print self.decoder
 
         self.processedItem = ProcessedItem()
 
@@ -58,7 +70,7 @@ class Worker(Process):
         """
         for data in iter(self.jobQueue.get, None):
             if data != 'Die':
-                (nItems, self.decoderMatch) = self._decode_dir(data) # shoudl come from decoder.
+                (nItems, self.decoderMatch) = self._decode_dir(data)
                 self.trueMatch = db.get_true_match(data, self.keywordFile)
                 self._score()  # compare decoder match with true match
 
@@ -66,7 +78,7 @@ class Worker(Process):
                 self.jobQueue.task_done()
 
             else:  ## report and Die !
-                self.logger.info('Die')
+                self.logger.debug('Die')
                 self.jobQueue.task_done()
                 # unpack the dictionnary : IS THAT NEEDED?
                 for k,v in self.keyword.iteritems():
@@ -83,6 +95,7 @@ class Worker(Process):
         decoderMatch = dict()
         nItems = 0
 
+        ## time the execution and add to the processedItem object
         for (filename, f) in db.walk_worker(wdir):
             self.decoder.decode(f, filename, self.keyword, decoderMatch)
             nItems += 1
@@ -117,6 +130,11 @@ class Worker(Process):
             for keyword in keywordList:
                 self.keyword[keyword].falseNegative += 1
 
+## dynamically imported module form the config. Link various database and decoder
+## to the generic names db and decoder, similar to:
+# from config import pocketsphinx_wrapper as decoder
+# from config import voxforge as db
+
 
 class KwsScorer(object):
     """docstring for KwsScorer
@@ -124,9 +142,32 @@ class KwsScorer(object):
     operating characteristic) of CMU sphinx
     on the VoxForge database and on the Buckeye corpus.
     """
-    def __init__(self):
+    def __init__(self, cfg):
         super(KwsScorer, self).__init__()
 
+        ## TODO, set default values
+        ## import the correct module based on the config, e.g database and decoder
+        dbModule = cfg['db']
+        decoderModule = cfg['decoder']['module']
+        global db, decoder
+        db = imp.load_source('db', 'config/'+dbModule+'.py')
+        decoder = imp.load_source('decoder', 'config/'+decoderModule+'.py')
+
+        self.keyword = keyword.get() ## TODO: make this work with cfg
+        self.processedItem = ProcessedItem()
+
+        self.jobQueue = JoinableQueue()
+        self.resQueue = JoinableQueue()
+
+        self.nCpu = cpu_count()/2
+
+        ## logging
+        # self._redirect_c_logging()
+        for i in range(self.nCpu):
+            w = Worker(self.jobQueue, self.resQueue, cfg=cfg)
+            w.start()
+
+        ## TODO: sort this out !!!
         self.logger = logging.getLogger(__name__+'.report')
         # create file handler 
         _date, _time = str(datetime.datetime.now())[:-7].split()
@@ -137,19 +178,7 @@ class KwsScorer(object):
         formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
         fh.setFormatter(formatter)
         self.logger.addHandler(fh)
-        ## dump the configuration
 
-        self.keyword = keyword.get()
-        self.processedItem = ProcessedItem()
-
-        self.jobQueue = JoinableQueue()
-        self.resQueue = JoinableQueue()
-
-        self.nCpu = cpu_count()
-
-        for i in range(self.nCpu):
-            w = Worker(self.jobQueue, self.resQueue)
-            w.start()
 
     def run(self):
         start_time = time.time()
@@ -175,8 +204,26 @@ class KwsScorer(object):
                 self.keyword[data.name] += data
             elif isinstance(data, ProcessedItem):
                 self.processedItem += data
-                self.logger.info('processed Items: %s', data.nItems)
+                self.logger.debug('processed Items: %s', data.nItems)
             nRes -= 1
+
+    def _redirect_c_logging(self):
+        from instant import inline
+        from os import fdopen, dup
+
+        stdout = fdopen(dup(sys.stdout.fileno()), 'w')
+        stderr = fdopen(dup(sys.stderr.fileno()), 'w')
+
+        FORMAT = '%(levelname)s:%(name)s:%(funcName)30s:%(lineno)3d $> %(message)s'
+        logging.basicConfig(stream=stderr, level=logging.INFO, format=FORMAT)
+
+        redirect = inline("""
+        void redirect(void) {
+            freopen("my_stdout.txt", "w", stdout);
+            freopen("my_stderr.txt", "w", stderr);
+        }
+        """)
+        redirect()
 
 def setup_logging(level=logging.INFO):
     """
@@ -203,21 +250,21 @@ def setup_logging(level=logging.INFO):
     """)
     redirect()
 
+    ## result logger - report
+    ch = logging.FileHandler('report.log')
+    ch.setLevel(level)
+    logger.addHandler(ch)
+
     ## console handler
     ch = logging.StreamHandler()
     ch.setLevel(level)
     logger.addHandler(ch)
     ## TODO: log the interesting results to file as a report
 
-    ## result logger - report
-    ch = logging.FileHandler('report.log')
-    ch.setLevel(level)
-    logger.addHandler(ch)
 
-
-def main(args):
+def main(cfg):
     # kpa = KwsScorer(args.keywords, args.truth)
-    kpa = KwsScorer()
+    kpa = KwsScorer(cfg)
     kpa.run()
 
     ## print results
@@ -247,15 +294,13 @@ if __name__ == '__main__':
     ## TODO: if keyword is not a file, make it a file
     ## TODO: add a debug flag. In case of Voxforge, the db is turned in voxforge.part
     ## TODO: add decoder flag
-    ## TODO: 
+
     parser.add_argument('--database', '-db', metavar='name', help='database to use. ex: voxforge', required=True)
     args = parser.parse_args()
 
-    if args.database == 'voxforge':
-        from config import voxforge as db
-
+    cfg = {'db': 'voxforge', 'decoder':{'module':'pocketsphinx_wrapper'}}
     setup_logging(logging.INFO)
-    main(args)
+    main(cfg)
 
 ## results for 30 minutes of running on whole voxforge
 # INFO:__main__:                      <module>:292 $> able to walk 17 7 32

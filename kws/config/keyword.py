@@ -1,35 +1,37 @@
 #!/usr/local/bin/python
 
-keywords = "\n".join(['what do you want',
+tmp = "\n".join(['what do you want',
                       'are you going to',
                       '',
                       ])
 
-keywords_most_probable = """plenty of
-tearing at
-spears and
-a couple of
-hatred and
-le beau
-portuguese boy
-iota of
-computing power
-violation of
-trying to
-spur of
-norsemen considered
-foretell war
-sun's rays
-according to
-owls were
-revolvers and
-managed to
-associated with
-token that
-glimmer of
-overt acts
-contributed to
-toothbrush is"""
+keywords = "\n".join(['plenty of',
+                                    'tearing at',
+                                    'spears and',
+                                    'a couple of',
+                                    'hatred and',
+                                    'le beau',
+                                    'portuguese boy',
+                                    'iota of',
+                                    'computing power',
+                                    'violation of',
+                                    'trying to',
+                                    'spur of',
+                                    'norsemen considered',
+                                    'foretell war',
+                                    "sun's rays",
+                                    'according to',
+                                    'owls were',
+                                    'revolvers and',
+                                    'managed to',
+                                    'associated with',
+                                    'token that',
+                                    'glimmer of',
+                                    'overt acts',
+                                    'contributed to',
+                                    'toothbrush is',
+                                    '',
+                                    ])
 
 keywordFile = 'config/keywords.txt'
 
