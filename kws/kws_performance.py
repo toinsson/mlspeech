@@ -47,19 +47,16 @@ class Worker(Process):
         and the database used.
         """
         super(Worker, self).__init__()
-
-        self.logger = logging.getLogger(__name__+'.'+self.name)
-        self.logger.debug('alive')
+        self.logger = logging.getLogger('debug')
+        # self.logger = logging.getLogger(__name__+'.'+self.name)
+        self.logger.info('%s - alive', self.name)
 
         self.jobQueue = job
         self.resQueue = res
 
         self.keyword = keyword.get()
         self.keywordFile = keyword.keywordFile
-        # self.decoder = decoder.Decoder(keywordFile=keyword.keywordFile)
         self.decoder = decoder.Decoder(keywordFile=keyword.keywordFile, **kwargs)
-
-        # print self.decoder
 
         self.processedItem = ProcessedItem()
 
@@ -78,7 +75,7 @@ class Worker(Process):
                 self.jobQueue.task_done()
 
             else:  ## report and Die !
-                self.logger.debug('Die')
+                self.logger.info('%s - Die after %s', self.name, self.processedItem.nItems)
                 self.jobQueue.task_done()
                 # unpack the dictionnary : IS THAT NEEDED?
                 for k,v in self.keyword.iteritems():
@@ -159,25 +156,17 @@ class KwsScorer(object):
         self.jobQueue = JoinableQueue()
         self.resQueue = JoinableQueue()
 
-        self.nCpu = cpu_count()/2
+        try:
+            self.nCpu = cfg['nCpu']
+        except KeyError:
+            self.nCpu = 6
 
-        ## logging
-        # self._redirect_c_logging()
         for i in range(self.nCpu):
             w = Worker(self.jobQueue, self.resQueue, cfg=cfg)
             w.start()
 
         ## TODO: sort this out !!!
         self.logger = logging.getLogger(__name__+'.report')
-        # create file handler 
-        _date, _time = str(datetime.datetime.now())[:-7].split()
-        _time = _time.replace(':','-')
-        log_filename='./log/'+_date+'_'+_time
-        force_symlink(log_filename, './last_log')
-        fh = logging.FileHandler(log_filename)
-        formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-        fh.setFormatter(formatter)
-        self.logger.addHandler(fh)
 
 
     def run(self):
@@ -206,24 +195,6 @@ class KwsScorer(object):
                 self.processedItem += data
                 self.logger.debug('processed Items: %s', data.nItems)
             nRes -= 1
-
-    def _redirect_c_logging(self):
-        from instant import inline
-        from os import fdopen, dup
-
-        stdout = fdopen(dup(sys.stdout.fileno()), 'w')
-        stderr = fdopen(dup(sys.stderr.fileno()), 'w')
-
-        FORMAT = '%(levelname)s:%(name)s:%(funcName)30s:%(lineno)3d $> %(message)s'
-        logging.basicConfig(stream=stderr, level=logging.INFO, format=FORMAT)
-
-        redirect = inline("""
-        void redirect(void) {
-            freopen("my_stdout.txt", "w", stdout);
-            freopen("my_stderr.txt", "w", stderr);
-        }
-        """)
-        redirect()
 
 def setup_logging(level=logging.INFO):
     """
@@ -260,6 +231,19 @@ def setup_logging(level=logging.INFO):
     ch.setLevel(level)
     logger.addHandler(ch)
     ## TODO: log the interesting results to file as a report
+
+    # create file handler 
+    # _date, _time = str(datetime.datetime.now())[:-7].split()
+    # _time = _time.replace(':','-')
+    # log_filename='./log/'+_date+'_'+_time
+    # force_symlink(log_filename, './last_log')
+    # fh = logging.FileHandler(log_filename)
+    # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    # fh.setFormatter(formatter)
+
+    # logger.addHandler(fh)
+    ## self.logger.addHandler(fh)
+
 
 
 def main(cfg):
@@ -299,7 +283,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     cfg = {'db': 'voxforge', 'decoder':{'module':'pocketsphinx_wrapper'}}
-    setup_logging(logging.INFO)
+    # setup_logging(logging.INFO)
     main(cfg)
 
 ## results for 30 minutes of running on whole voxforge

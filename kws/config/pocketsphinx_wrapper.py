@@ -1,18 +1,30 @@
 #!/usr/local/bin/python
 
-## for CMU Sphinx and Google decoder configuration
-
 import pocketsphinx as ps
 import sphinxbase as sb
 from os import path
 
-# function_map = {0:sb.Config.set_string,
-#                 1:sb.Config.set_float
-#                 }
+## redirect SWIG library
+from instant import inline
+from os import fdopen, dup
+import sys
+stdout = fdopen(dup(sys.stdout.fileno()), 'w')
+stderr = fdopen(dup(sys.stderr.fileno()), 'w')
+redirect = inline("""
+void redirect(void) {
+    freopen("my_stdout.txt", "w", stdout);
+    freopen("my_stderr.txt", "w", stderr);
+}
+""")
+redirect()
 
 POCKETSPHINX_SHARE_DIR = '/usr/local/share/pocketsphinx/'
 MODELDIR = POCKETSPHINX_SHARE_DIR+'model'
 DATADIR = POCKETSPHINX_SHARE_DIR+'test/data'
+
+# function_map = {0:sb.Config.set_string,
+#                 1:sb.Config.set_float
+#                 }
 
 default_config = [
     {'name': '-hmm', 'func': sb.Config.set_string, 'value': path.join(MODELDIR, 'hmm/en_US/hub4wsj_sc_8k')},

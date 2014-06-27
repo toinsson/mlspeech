@@ -17,8 +17,8 @@ config = {
                       ]),
 
 # option: pocketpshinx | google
-'decoder' : {'name':'pocketsphinx',
-             'module':'pocketsphinx_wrapper',
+'decoder' : {'name':'googlespeech',
+             'module':'googlespeech_wrapper',
              'options':{
              'hmm':'',
              'dict':'',
@@ -29,7 +29,7 @@ config = {
 variables = {
 
 # decoder.option
-'kws_threshold' : np.power(float(10),range(-9, -7)),
+'kws_threshold' : np.power(float(10),range(-30, -29)),
 
 }
 

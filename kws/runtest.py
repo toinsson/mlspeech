@@ -12,6 +12,7 @@ import numpy as np
 from itertools import izip, product
 
 from kws_performance import KwsScorer
+from utils import force_symlink
 
 def my_product(dicts):
     return (dict(izip(dicts, x)) for x in product(*dicts.itervalues()))
@@ -23,9 +24,11 @@ def runtest(test):
     kpa = KwsScorer(test)
     kpa.run()
 
-    logging.info('testspec:%s', test)
+    print 'test for printest'
 
-    pp = pprint.PrettyPrinter()
+    logger = logging.getLogger(__name__)
+    # logger.info('kws_threshold:%s', test['kws_threshold'])
+    logger.info('total items:%s', kpa.processedItem.nItems)
 
     ## print results
     for k,v in kpa.keyword.iteritems():
@@ -37,70 +40,60 @@ def runtest(test):
         except ZeroDivisionError:
             sensitivity = specificity = 'NaN'
 
-        kpa.logger.info('%s\t- %s\t- %s\t- %s\t- %s\t- %s', v.name,
+        logger.info('%30s, %4s, %4s, %4s, %15s\t, %15s\t',
+                                            v.name,
                                              v.truePositive,
                                              v.falsePositive,
                                              v.falseNegative,
                                              sensitivity,
                                              specificity)
 
-        pp.pprint((v.name,
-                 v.truePositive,
-                 v.falsePositive,
-                 v.falseNegative,
-                 sensitivity,
-                 specificity))
+def setup_report():
 
-def redirect_c_logging():
-    from instant import inline
-    from os import fdopen, dup
-
-    stdout = fdopen(dup(sys.stdout.fileno()), 'w')
-    stderr = fdopen(dup(sys.stderr.fileno()), 'w')
-
-    # FORMAT = '%(levelname)s:%(name)s:%(funcName)30s:%(lineno)3d $> %(message)s'
+    ## in case of Google recogniser, no need to suppress the C output, instead just setup the logging
     FORMAT = '%(message)s'
-    logging.basicConfig(stream=stderr, level=logging.INFO, format=FORMAT)
+    # from os import fdopen, dup
+    # stderr = fdopen(dup(sys.stderr.fileno()), 'w')
+    logging.basicConfig(level=logging.INFO, format=FORMAT)
 
-    redirect = inline("""
-    void redirect(void) {
-        freopen("my_stdout.txt", "w", stdout);
-        freopen("my_stderr.txt", "w", stderr);
-    }
-    """)
-    redirect()
+    import datetime
+
+    logger = logging.getLogger(__name__)
+
+    _date, _time = str(datetime.datetime.now())[:-7].split()
+    _time = _time.replace(':','-')
+    log_filename='./log/'+_date+'_'+_time
+    force_symlink(log_filename, './last_log')
+    fh = logging.FileHandler(log_filename)
+    formatter = logging.Formatter('%(asctime)s - %(message)s')
+    fh.setFormatter(formatter)
+
+    logger.addHandler(fh)
+    # self.logger.addHandler(fh)
+
+    logger = logging.getLogger('debug')
+    fh = logging.FileHandler('debug.log')
+    formatter = logging.Formatter('%(asctime)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+    logger.propagate = False
+    logger.setLevel(logging.DEBUG)
+
 
 if __name__ == '__main__':
     desc = ''.join(['perform a test',' '])
     parser = argparse.ArgumentParser(description=desc)
-
     parser.add_argument('--test', '-t', metavar='specification', 
                         help='the test specification as a list of list', required=True)
-
     args = parser.parse_args()
 
-    ## load the test spec as a namespace
     testspec = imp.load_source("testspec", args.test)
 
-    redirect_c_logging()
+    setup_report()
 
     ## generate the list of tests
     tests = generate_tests(testspec)
     print tests
-
-
-    ## import the correct packages
-    ## do it better ...
-    # if tests[0]['db'] == 'voxforge':
-    #     from config import voxforge as db
-    # if tests[0]['decoder']['name'] == 'pocketsphinx':
-    #     from config import pocketsphinx_wrapper as decoder
-
-    # print 'from runtest.py :',globals()
-
-    # kpa = KwsScorer('')
-
-    # print decoder
 
     ## run the tests sequentially
     for test in tests:

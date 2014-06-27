@@ -44,6 +44,7 @@ groundTruthScript = './config/ground_truth_voxforge.sh'
 def get_true_match(wdir, keywordFile):
     transcriptFile = wdir+transcriptFileExt
 
+    ## should capture case when prompts-original doesn't exist ...
     output = subprocess.check_output([groundTruthScript,
                                       '-t', transcriptFile,
                                       '-k', keywordFile])
