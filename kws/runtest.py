@@ -52,9 +52,9 @@ def setup_report():
 
     ## in case of Google recogniser, no need to suppress the C output, instead just setup the logging
     FORMAT = '%(message)s'
-    # from os import fdopen, dup
-    # stderr = fdopen(dup(sys.stderr.fileno()), 'w')
-    logging.basicConfig(level=logging.INFO, format=FORMAT)
+    from os import fdopen, dup
+    stderr = fdopen(dup(sys.stderr.fileno()), 'w')
+    logging.basicConfig(stream=stderr, level=logging.INFO, format=FORMAT)
 
     import datetime
 

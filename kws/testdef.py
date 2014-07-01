@@ -17,12 +17,14 @@ config = {
                       ]),
 
 # option: pocketpshinx | google
-'decoder' : {'name':'googlespeech',
-             'module':'googlespeech_wrapper',
+'decoder' : {'name':'pocketsphinx',
+             'module':'pocketsphinx_wrapper',
              'options':{
              'hmm':'',
              'dict':'',
              }},
+
+'nCpu' : 8,
 
 }
 

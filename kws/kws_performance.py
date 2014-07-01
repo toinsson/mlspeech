@@ -19,10 +19,6 @@ import importlib
 import imp
 
 
-## this should depend on the config
-# from config import pocketsphinx_wrapper as decoder
-# from config import voxforge as db
-
 class ProcessedItem(object):
     """docstring for ProcessedItem"""
     def __init__(self, value=0):
@@ -67,7 +63,7 @@ class Worker(Process):
         """
         for data in iter(self.jobQueue.get, None):
             if data != 'Die':
-                (nItems, self.decoderMatch) = self._decode_dir(data)
+                (nItems, self.decoderMatch) = self._decode(data)
                 self.trueMatch = db.get_true_match(data, self.keywordFile)
                 self._score()  # compare decoder match with true match
 
@@ -83,11 +79,12 @@ class Worker(Process):
                 self.resQueue.put(self.processedItem)
                 break
 
-    def _decode_dir(self, wdir):
+    def _decode(self, wdir):
         """
         Perform the decoding under one directory. Usually one directory contains several
         files to be decoded.
         Return the matches as a dict with key fileid (no extension) and value is list of keywords.
+        e.g. decoderMatch : file, [keyword,...]
         """
         decoderMatch = dict()
         nItems = 0
@@ -126,11 +123,6 @@ class Worker(Process):
         for key, keywordList in self.trueMatch.iteritems():
             for keyword in keywordList:
                 self.keyword[keyword].falseNegative += 1
-
-## dynamically imported module form the config. Link various database and decoder
-## to the generic names db and decoder, similar to:
-# from config import pocketsphinx_wrapper as decoder
-# from config import voxforge as db
 
 
 class KwsScorer(object):
@@ -177,6 +169,26 @@ class KwsScorer(object):
 
         self.logger.info("%s seconds", time.time() - start_time)
 
+    def score(self):
+        logger = logging.getLogger(__name__)
+        ## print results
+        for k,v in kpa.keyword.iteritems():
+            voxforgeTotal = kpa.processedItem.nItems
+            try:
+                trueNegative = voxforgeTotal - (v.truePositive + v.falsePositive + v.falseNegative)
+                sensitivity = float(v.truePositive) / (v.truePositive + v.falseNegative)
+                specificity = float(trueNegative) / (trueNegative + v.falsePositive)
+            except ZeroDivisionError:
+                sensitivity = specificity = 'NaN'
+
+            logger.info('%s %s %s %s %s %s', v.name,
+                                                 v.truePositive,
+                                                 v.falsePositive,
+                                                 v.falseNegative,
+                                                 sensitivity,
+                                                 specificity)
+        ## compute the precision and recall, like a normal information retrieval system
+
     def _create_job_and_wait(self):
         for wdir in db.walk_scorer():
             self.jobQueue.put(wdir)
@@ -202,24 +214,15 @@ def setup_logging(level=logging.INFO):
     library used here.
     This is done by duplicating the pipe and calling a C function.
     """
-    from instant import inline
-    from os import fdopen, dup
-    logger = logging.getLogger(__name__)
-
-    FORMAT = '%(levelname)s:%(name)s:%(funcName)30s:%(lineno)3d $> %(message)s'
-
     ## redirect SWIG library
     ## TODO: maybe set the log level at compilation time
-    stdout = fdopen(dup(sys.stdout.fileno()), 'w')
+    # stdout = fdopen(dup(sys.stdout.fileno()), 'w')
+    from os import fdopen, dup
     stderr = fdopen(dup(sys.stderr.fileno()), 'w')
+    FORMAT = '%(levelname)s:%(name)s:%(funcName)30s:%(lineno)3d $> %(message)s'
     logging.basicConfig(stream=stderr, level=level, format=FORMAT)
-    redirect = inline("""
-    void redirect(void) {
-        freopen("my_stdout.txt", "w", stdout);
-        freopen("my_stderr.txt", "w", stderr);
-    }
-    """)
-    redirect()
+
+    logger = logging.getLogger(__name__)
 
     ## result logger - report
     ch = logging.FileHandler('report.log')
@@ -230,6 +233,7 @@ def setup_logging(level=logging.INFO):
     ch = logging.StreamHandler()
     ch.setLevel(level)
     logger.addHandler(ch)
+
     ## TODO: log the interesting results to file as a report
 
     # create file handler 
@@ -250,7 +254,7 @@ def main(cfg):
     # kpa = KwsScorer(args.keywords, args.truth)
     kpa = KwsScorer(cfg)
     kpa.run()
-
+    logger = logging.getLogger(__name__)
     ## print results
     for k,v in kpa.keyword.iteritems():
         voxforgeTotal = kpa.processedItem.nItems
@@ -261,12 +265,16 @@ def main(cfg):
         except ZeroDivisionError:
             sensitivity = specificity = 'NaN'
 
-        kpa.logger.info('%s %s %s %s %s %s', v.name,
+        logger.info('%s %s %s %s %s %s', v.name,
                                              v.truePositive,
                                              v.falsePositive,
                                              v.falseNegative,
                                              sensitivity,
                                              specificity)
+
+    ## compute the precision and recall, like a normal information retrieval system
+
+
     ##
     # sensitivity = self.truePositive / (self.truePositive + self.falseNegative)
     # specificity = voxforgeTotal / (voxforgeTotal + self.falsePositive)
@@ -283,7 +291,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     cfg = {'db': 'voxforge', 'decoder':{'module':'pocketsphinx_wrapper'}}
-    # setup_logging(logging.INFO)
+    setup_logging(logging.INFO)
     main(cfg)
 
 ## results for 30 minutes of running on whole voxforge
