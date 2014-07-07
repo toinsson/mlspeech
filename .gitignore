@@ -5,3 +5,6 @@
 log*
 last_log
 my_*
+data*
+[0-9]*
+*.log
