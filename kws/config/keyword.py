@@ -40,6 +40,20 @@ keywordFile = 'config/keywords.txt'
 with open('config/keywords.txt', 'w') as f:
     f.write(keywords)
 
+class Keywords(object):
+    """
+    docstring for Keywords
+    """
+    def __init__(self, klist):
+        super(Keywords, self).__init__()
+        self.list = klist
+
+        with open('config/keywords.txt', 'w') as f:
+            f.write(klist)
+
+    def get(self):
+        return dict([(name, Keyword(name)) for name in self.list.split('\n') if name != ''])
+
 class Keyword(object):
     """
     Encapsulate different keyword information:

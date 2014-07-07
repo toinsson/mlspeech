@@ -7,12 +7,14 @@ function usage
     echo "  The keyword file must have one keyword per line and a last EOL character."
     exit 1
 }
+
 function wrong
 {
     echo "wrong syntax"
     usage
 }
 
+# parse the transcription and look for occurence of keywords - non case sensitive
 function exe
 {
     while read line

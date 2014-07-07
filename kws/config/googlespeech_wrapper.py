@@ -43,7 +43,7 @@ class Decoder(object):
 
             fileId = path.splitext(filename)[0]
             decoderMatch[fileId] = keywords
-
+            self.logger.debug('%s - %s', fileId, keywords)
 
 class AudioSource(object):
     pass

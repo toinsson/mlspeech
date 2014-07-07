@@ -12,6 +12,7 @@ import subprocess
 ## TODO: change the path
 from config import keyword
 from config.keyword import Keyword
+from config.keyword import Keywords
 
 from utils import force_symlink
 
@@ -50,7 +51,12 @@ class Worker(Process):
         self.jobQueue = job
         self.resQueue = res
 
-        self.keyword = keyword.get()
+        try:
+            cfg = kwargs['cfg']
+            self.keyword = Keywords(cfg['keywords']).get() ## TODO: make this work with cfg    
+        except KeyError as e:
+            self.keyword = keyword.get() ## TODO: make this work with cfg
+        # self.keyword = keyword.get()
         self.keywordFile = keyword.keywordFile
         self.decoder = decoder.Decoder(keywordFile=keyword.keywordFile, **kwargs)
 
@@ -134,25 +140,28 @@ class KwsScorer(object):
     def __init__(self, cfg):
         super(KwsScorer, self).__init__()
 
-        ## TODO, set default values
-        ## import the correct module based on the config, e.g database and decoder
+        ## mandatory
         dbModule = cfg['db']
         decoderModule = cfg['decoder']['module']
         global db, decoder
         db = imp.load_source('db', 'config/'+dbModule+'.py')
         decoder = imp.load_source('decoder', 'config/'+decoderModule+'.py')
 
-        self.keyword = keyword.get() ## TODO: make this work with cfg
+
+        try:  ## optional
+            self.keyword = Keywords(cfg['keywords']).get()
+        except KeyError as e:
+            self.keyword = keyword.get()
+
         self.processedItem = ProcessedItem()
 
-        self.jobQueue = JoinableQueue()
-        self.resQueue = JoinableQueue()
-
-        try:
+        try:  ## optional
             self.nCpu = cfg['nCpu']
         except KeyError:
             self.nCpu = 6
 
+        self.jobQueue = JoinableQueue()
+        self.resQueue = JoinableQueue()
         for i in range(self.nCpu):
             w = Worker(self.jobQueue, self.resQueue, cfg=cfg)
             w.start()
@@ -170,23 +179,20 @@ class KwsScorer(object):
         self.logger.info("%s seconds", time.time() - start_time)
 
     def score(self):
-        logger = logging.getLogger(__name__)
-        ## print results
-        for k,v in kpa.keyword.iteritems():
-            voxforgeTotal = kpa.processedItem.nItems
+        """
+        score the recognizer adn output the results in a results class ?
+        """
+        total = self.processedItem.nItems
+
+        for k,v in self.keyword.iteritems():
             try:
-                trueNegative = voxforgeTotal - (v.truePositive + v.falsePositive + v.falseNegative)
+                trueNegative = total - (v.truePositive + v.falsePositive + v.falseNegative)
                 sensitivity = float(v.truePositive) / (v.truePositive + v.falseNegative)
                 specificity = float(trueNegative) / (trueNegative + v.falsePositive)
+                precision = float(v.truePositive) / (v.truePositive + v.falsePositive)
             except ZeroDivisionError:
                 sensitivity = specificity = 'NaN'
 
-            logger.info('%s %s %s %s %s %s', v.name,
-                                                 v.truePositive,
-                                                 v.falsePositive,
-                                                 v.falseNegative,
-                                                 sensitivity,
-                                                 specificity)
         ## compute the precision and recall, like a normal information retrieval system
 
     def _create_job_and_wait(self):
@@ -214,9 +220,7 @@ def setup_logging(level=logging.INFO):
     library used here.
     This is done by duplicating the pipe and calling a C function.
     """
-    ## redirect SWIG library
-    ## TODO: maybe set the log level at compilation time
-    # stdout = fdopen(dup(sys.stdout.fileno()), 'w')
+    ## overwriting in case redirect is used later
     from os import fdopen, dup
     stderr = fdopen(dup(sys.stderr.fileno()), 'w')
     FORMAT = '%(levelname)s:%(name)s:%(funcName)30s:%(lineno)3d $> %(message)s'
@@ -233,21 +237,6 @@ def setup_logging(level=logging.INFO):
     ch = logging.StreamHandler()
     ch.setLevel(level)
     logger.addHandler(ch)
-
-    ## TODO: log the interesting results to file as a report
-
-    # create file handler 
-    # _date, _time = str(datetime.datetime.now())[:-7].split()
-    # _time = _time.replace(':','-')
-    # log_filename='./log/'+_date+'_'+_time
-    # force_symlink(log_filename, './last_log')
-    # fh = logging.FileHandler(log_filename)
-    # formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
-    # fh.setFormatter(formatter)
-
-    # logger.addHandler(fh)
-    ## self.logger.addHandler(fh)
-
 
 
 def main(cfg):
@@ -294,6 +283,8 @@ if __name__ == '__main__':
     setup_logging(logging.INFO)
     main(cfg)
 
+
+## could be put in some tests
 ## results for 30 minutes of running on whole voxforge
 # INFO:__main__:                      <module>:292 $> able to walk 17 7 32
 # INFO:__main__:                      <module>:292 $> the spokesman 27 10 22

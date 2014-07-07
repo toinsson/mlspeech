@@ -8,17 +8,32 @@ import numpy as np
 config = {
 
 # option: voxforge.main | voxforge.debug ##| buckeye | toine
-'db' : 'custom',
+'db' : 'custom_dataset',
 
 # option: pocketpshinx | google
-'decoder' : {'name':'pocketpshinx',
-             'module':'pocketpshinx_wrapper',
+'decoder' : {'name':'pocketsphinx',
+             'module':'googlespeech_wrapper',
             },
+'dict' : '/Users/toine/Documents/grasch/ensemble_cased/essential-sane-65k.fullCased.dic',
 
-# if keyword provided, make sure they are getting saved to file 'config/keywords.txt'
+# free choice, MIT stadard list can be interesting
+'keywords' : "\n".join(['what do you want',
+                        'are you going to',
+                        'Wikipedia',
+                        'YouTube',
+                        'have you',
+                        'do you have',
+                        'what is',
+                        "what's",
+                        'want a coffee',
+                        'this is important',
+                        'listen to',
+                        'Google'
+                        '',
+                        ]),
 
 #
-'nCpu' : 2,
+'nCpu' : 1,
 
 }
 
