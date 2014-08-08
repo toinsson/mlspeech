@@ -10,6 +10,7 @@ import sys
 import imp
 import logging
 import time
+import datetime
 
 ## imports local
 import matplotlib as plt
@@ -272,6 +273,10 @@ class ChunkerFromAsFile(object):
                 frameSt = 0
             if frameEd > nframes:
                 frameEd = nframes
+
+            start = str(datetime.timedelta(seconds=int(msSt)/1000)).replace(':','-')
+            stop  = str(datetime.timedelta(seconds=int(msEd)/1000)).replace(':','-')
+            outFilename += '_' + start + '_' + stop
 
             wavFile.setpos(frameSt)
             chunk = wavFile.readframes(frameEd - frameSt)
